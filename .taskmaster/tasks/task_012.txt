@@ -1,0 +1,62 @@
+# Task ID: 12
+# Title: Documentation, .env.example, and Final Package Configuration
+# Status: pending
+# Dependencies: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+# Priority: low
+# Description: Create comprehensive documentation (README.md), an example environment file (`.env.example` or secret setup guide), and finalize the `package.json` files with all dependencies.
+# Details:
+1. **README.md:** 
+   - Project overview and purpose. 
+   - Prerequisites (Node.js, pnpm, Wrangler CLI). 
+   - Monorepo structure explanation. 
+   - Setup instructions: clone, `pnpm install -r`. 
+   - Twitter App setup guide (how to get API keys, set up webhook URL). 
+   - Wrangler secrets setup: list of required secrets and `wrangler secret put <KEY>` commands. 
+   - Local development: `pnpm --filter worker dev`, `pnpm --filter dashboard dev`, `wrangler pages dev ...`. 
+   - Deployment: `wrangler deploy`. 
+   - How to use the bot and access the dashboard. 
+2. **`.env.example` / Secrets Guide:** Create a `.env.example` file at the root or in `packages/worker` listing environment variables that will be set as Wrangler secrets. 
+   ```
+   # Wrangler Secrets (set these using 'wrangler secret put KEY_NAME')
+   # Twitter API Credentials
+   TWITTER_CONSUMER_KEY=
+   TWITTER_CONSUMER_SECRET=
+   TWITTER_ACCESS_TOKEN=
+   TWITTER_ACCESS_SECRET=
+   # AI Detection API (optional, if using a real one)
+   # AI_API_ENDPOINT=
+   # AI_API_KEY=
+   # Basic Auth for Dashboard (if chosen over Cloudflare Access for some API parts)
+   # BASIC_AUTH_USERNAME=
+   # BASIC_AUTH_PASSWORD=
+   ```
+3. **`package.json` files:** Review and ensure all necessary dependencies are listed with appropriate versions in `packages/worker/package.json`, `packages/dashboard/package.json`, and the root `package.json` (for workspace management and dev tools like `typescript`, `wrangler`).
+
+# Test Strategy:
+Review README.md for clarity, completeness, and accuracy of instructions. Verify `.env.example` lists all necessary secrets. Check `package.json` files for correct dependencies. Ask a new team member to follow the setup and deployment instructions to ensure they are clear.
+
+# Subtasks:
+## 1. Draft and Structure the README File [pending]
+### Dependencies: None
+### Description: Create a comprehensive README that covers project overview, setup instructions, usage, contribution guidelines, and references to environment variables and configuration files.
+### Details:
+Ensure the README is clear, well-organized, and includes sections for prerequisites, installation, configuration, and troubleshooting. Reference the .env.example file and document any required environment variables.
+
+## 2. Create and Document the .env.example File [pending]
+### Dependencies: 12.1
+### Description: Develop a .env.example file that lists all required environment variables with descriptive placeholder values and comments where necessary.
+### Details:
+Follow best practices by not including sensitive values, using clear and consistent naming, and adding comments to clarify variable purposes. Ensure the file is referenced in the README and is committed to version control as a template only.
+
+## 3. Review and Update package.json Files [pending]
+### Dependencies: 12.2
+### Description: Examine all package.json files for accuracy, completeness, and consistency with project documentation and dependencies.
+### Details:
+Check scripts, dependencies, metadata, and ensure alignment with documented setup instructions. Update fields as needed to reflect the current state of the project.
+
+## 4. Verify Documentation Clarity and Completeness [pending]
+### Dependencies: 12.3
+### Description: Review all documentation, including the README and .env.example, to ensure clarity, accuracy, and completeness for new contributors or users.
+### Details:
+Perform a walkthrough of the setup process using only the documentation. Identify and address any ambiguities, missing steps, or unclear instructions.
+

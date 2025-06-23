@@ -1,0 +1,42 @@
+# Task ID: 7
+# Title: Frontend: Dashboard Basic Setup (React, Vite, Tailwind, Routing)
+# Status: pending
+# Dependencies: 1
+# Priority: medium
+# Description: Set up the basic structure for the React dashboard using Vite, including TailwindCSS for styling and react-router-dom for routing.
+# Details:
+1. In `packages/dashboard`, ensure Vite, React, TypeScript, TailwindCSS, and `react-router-dom` are installed. 
+2. Configure TailwindCSS: Initialize `tailwind.config.js` and `postcss.config.js`. Include Tailwind directives in `src/index.css`. 
+   `tailwind.config.js` content: `content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"], theme: { extend: {} }, plugins: []` 
+3. Set up basic routing in `src/App.tsx` using `react-router-dom`. Create a route for `/dashboard` that renders a placeholder `DashboardPage` component. 
+4. Create a simple layout component (e.g., `Layout.tsx`) with a header/sidebar placeholder. 
+5. Ensure the Vite dev server (`pnpm dev`) runs and displays the basic dashboard page.
+
+# Test Strategy:
+Run `pnpm dev` in `packages/dashboard`. Verify the dashboard page loads at the correct route (e.g., `/` or `/dashboard`). Check that TailwindCSS utility classes can be applied and take effect. Basic navigation should work if multiple routes are stubbed.
+
+# Subtasks:
+## 1. Initialize the Dashboard Project with Vite and React [pending]
+### Dependencies: None
+### Description: Set up a new React project using Vite for fast development. This includes creating the project directory, installing dependencies, and running the initial development server.
+### Details:
+Run `npm create vite@latest react-analytics-dashboard --template react`, navigate into the directory, install dependencies with `npm install`, and start the dev server with `npm run dev`.[2]
+
+## 2. Configure TailwindCSS [pending]
+### Dependencies: 7.1
+### Description: Install and configure TailwindCSS for styling the dashboard. This involves installing TailwindCSS and updating the configuration files.
+### Details:
+Install TailwindCSS with `npm install tailwindcss`, initialize the config, and update the main CSS file to include Tailwind's directives.[2]
+
+## 3. Set Up Routing with React Router [pending]
+### Dependencies: 7.2
+### Description: Install and configure React Router to enable navigation between dashboard pages.
+### Details:
+Install `react-router-dom` and set up basic routes in `App.jsx` for pages like Dashboard and Analytics.[2]
+
+## 4. Create Basic Layout Components (Header and Sidebar) [pending]
+### Dependencies: 7.3
+### Description: Develop the foundational layout components such as Header and Sidebar, and integrate them into the main layout.
+### Details:
+Create `Header.jsx` and `Sidebar.jsx` in the components folder with basic TailwindCSS styling, and use them in the main layout to structure the dashboard.[2]
+

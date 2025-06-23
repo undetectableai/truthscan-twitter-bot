@@ -1,0 +1,226 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Cloudflare Workers Development Guide
+
+This guide contains essential best practices for developing with Cloudflare Workers, specifically for the Truthscan Twitter Bot project.
+
+## 🏗️ **Project Architecture**
+
+### **Code Standards**
+- **Use TypeScript by default** unless JavaScript is specifically requested
+- **ES modules format exclusively** - never use Service Worker format
+- **Keep all code in a single file** unless otherwise specified
+- **Minimize external dependencies** unless there's an official SDK/library
+- **Never use libraries with FFI/native/C bindings**
+
+### **Security Best Practices**
+- **Never bake secrets into code**
+- **Use Wrangler secrets** for sensitive data (API keys, tokens)
+- **Implement proper request validation**
+- **Use appropriate security headers**
+- **Handle CORS correctly when needed**
+- **Implement rate limiting where appropriate**
+
+## 🔧 **Configuration Requirements**
+
+### **wrangler.jsonc Structure**
+```jsonc
+{
+  "name": "truthscan-twitter-bot",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-02-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}
+```
+
+### **Key Configuration Points**
+- **Always use wrangler.jsonc** (not wrangler.toml)
+- **Set compatibility_date = "2025-02-11"**
+- **Set compatibility_flags = ["nodejs_compat"]**
+- **Enable observability with head_sampling_rate = 1**
+- **Only include bindings that are used in the code**
+
+## 📊 **Cloudflare Services Integration**
+
+### **For This Project**
+- **Cloudflare Workers**: Real-time webhook handling
+- **Cloudflare D1**: Relational data storage for detection results
+- **Cloudflare Pages**: Frontend dashboard hosting
+- **Workers Analytics Engine**: Optional for tracking bot metrics
+
+### **D1 Database Setup**
+```typescript
+interface Env {
+  DB: D1Database;
+  TWITTER_CONSUMER_KEY: string;
+  TWITTER_CONSUMER_SECRET: string;
+  TWITTER_ACCESS_TOKEN: string;
+  TWITTER_ACCESS_TOKEN_SECRET: string;
+}
+```
+
+## 🔒 **Secrets Management**
+
+### **Required Secrets for Twitter Bot**
+```bash
+# Set these using wrangler secret put
+wrangler secret put TWITTER_CONSUMER_KEY
+wrangler secret put TWITTER_CONSUMER_SECRET  
+wrangler secret put TWITTER_ACCESS_TOKEN
+wrangler secret put TWITTER_ACCESS_TOKEN_SECRET
+wrangler secret put AI_DETECTION_API_KEY
+```
+
+### **Environment Variables vs Secrets**
+- **Secrets**: API keys, tokens, passwords (use `wrangler secret put`)
+- **Environment Variables**: Non-sensitive configuration (use wrangler.jsonc vars)
+
+## 🌐 **API Patterns**
+
+### **Request Handling**
+```typescript
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // Implement proper error boundaries
+    try {
+      // Handle requests here
+      return new Response("OK", { status: 200 });
+    } catch (error) {
+      console.error("Worker error:", error);
+      return new Response("Internal Server Error", { status: 500 });
+    }
+  }
+};
+```
+
+### **Error Handling**
+- **Implement proper error boundaries**
+- **Return appropriate HTTP status codes**
+- **Provide meaningful error messages**
+- **Log errors appropriately**
+- **Handle edge cases gracefully**
+
+## 🚀 **Performance Guidelines**
+
+### **Cold Start Optimization**
+- **Minimize unnecessary computation**
+- **Use appropriate caching strategies**
+- **Consider Workers limits and quotas**
+- **Implement streaming where beneficial**
+
+### **Twitter Webhook Specific**
+- **Respond to CRC challenges within timeout**
+- **Handle high-frequency webhook events efficiently**
+- **Implement proper queuing for API rate limits**
+
+## 🧪 **Testing & Development**
+
+### **Local Development**
+```bash
+# Start local development
+wrangler dev
+
+# Test with ngrok for webhook testing
+ngrok http 8787
+```
+
+### **Testing Approach**
+- **Include basic test examples**
+- **Provide curl commands for API endpoints**
+- **Add example environment variable values**
+- **Include sample requests and responses**
+
+## 📱 **Frontend Integration (Pages)**
+
+### **Static Assets Configuration**
+```jsonc
+{
+  "assets": {
+    "directory": "./dist/",
+    "not_found_handling": "single-page-application",
+    "binding": "ASSETS"
+  }
+}
+```
+
+### **API Integration Pattern**
+```typescript
+export default {
+  fetch(request, env) {
+    const url = new URL(request.url);
+    
+    // Handle API routes
+    if (url.pathname.startsWith("/api/")) {
+      return handleAPI(request, env);
+    }
+    
+    // Serve static assets
+    return env.ASSETS.fetch(request);
+  }
+};
+```
+
+## 🔄 **Twitter API Integration**
+
+### **Webhook CRC Validation**
+```typescript
+async function validateCRC(crcToken: string, consumerSecret: string): Promise<string> {
+  const hmac = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(consumerSecret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    hmac,
+    new TextEncoder().encode(crcToken)
+  );
+  
+  return btoa(String.fromCharCode(...new Uint8Array(signature)));
+}
+```
+
+### **Rate Limiting Considerations**
+- **Twitter API has rate limits** - implement proper queuing
+- **Use exponential backoff** for retries
+- **Cache responses where appropriate**
+- **Handle 429 responses gracefully**
+
+## 🚨 **Common Pitfalls**
+
+### **Avoid These**
+- ❌ Using Service Worker format instead of ES modules
+- ❌ Hardcoding secrets in source code
+- ❌ Not handling Twitter CRC validation properly
+- ❌ Missing error handling for webhook timeouts
+- ❌ Not implementing proper CORS for dashboard API
+- ❌ Using blocking operations without proper async handling
+
+### **Best Practices**
+- ✅ Use structured logging with console.log/error
+- ✅ Implement proper request validation
+- ✅ Use TypeScript interfaces for all data structures
+- ✅ Handle webhook payload validation
+- ✅ Implement graceful degradation for API failures
+- ✅ Use proper HTTP status codes in responses
+
+## 📚 **Additional Resources**
+
+- [Cloudflare Workers Documentation](https://developers.cloudflare.com/workers/)
+- [D1 Database Documentation](https://developers.cloudflare.com/d1/)
+- [Twitter Developer Platform](https://developer.twitter.com/)
+- [Wrangler CLI Reference](https://developers.cloudflare.com/workers/wrangler/)
+
+---
+
+**Remember**: Always test locally with `wrangler dev` before deploying, and use `wrangler tail` to monitor logs in production.

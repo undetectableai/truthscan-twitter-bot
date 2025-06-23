@@ -1,0 +1,48 @@
+When working on this project, always first consult the cloudflare.mdc file in this repo. This file contains instructions for best practices working with Cloudflare.
+
+
+
+I want to build a real-time Twitter bot that detects whether an image in a tweet is AI-generated. The bot should respond automatically within ~20 seconds of being tagged. I also want a simple dashboard to view analytics and history of the bot's activity. Please generate a monorepo project that:
+
+🔧 TECH STACK:
+- Uses **Cloudflare Workers** for handling Twitter webhooks in real-time.
+- Stores detection results in **Cloudflare KV** (or D1 if more structure needed).
+- Frontend dashboard built with **React + Vite**, served via **Cloudflare Pages** or integrated with Workers Sites.
+- Styling via **TailwindCSS**.
+- Charts via **Recharts** or **Chart.js**.
+- Written in **JavaScript or TypeScript** (TypeScript preferred).
+
+🧠 BOT FEATURES:
+1. Webhook endpoint that responds to mentions of the Twitter account (via Twitter’s Account Activity API).
+2. Extracts any attached image URL(s) from the tweet.
+3. Sends each image to an **AI image detection API** (placeholder endpoint for now, like `POST /detect` that returns `{ ai_probability: number }`).
+4. Replies to the original tweet with a message like:  
+   “🧠 This image looks **84%** likely to be AI-generated.”
+5. Stores each detection in KV/D1: `tweet_id`, `timestamp`, `image_url`, `detection_score`, `twitter_handle`.
+
+📊 DASHBOARD FEATURES:
+1. Simple React dashboard at `/dashboard` route.
+2. Table view of recent detections (tweet handle, timestamp, AI score).
+3. Pie chart: AI vs Real image breakdown.
+4. Timeline or bar graph of detections per day.
+5. Optional: search by Twitter handle or filter by score.
+
+🔐 SECURITY:
+- Protect dashboard with basic auth or Cloudflare Access.
+- Store Twitter credentials and detection API keys securely in Wrangler secrets.
+
+🛠️ WRANGLER:
+- Include `wrangler.toml` config for deploying Workers and Pages from a single repo.
+- Support local dev with `wrangler dev`.
+
+💡 PLEASE INCLUDE:
+- `package.json` with all required dependencies.
+- Example `.env.example` or Wrangler secret setup commands.
+- Mock detection API call (e.g. return random % if not configured).
+- Twitter webhook CRC validation stub.
+- README with setup instructions.
+
+OPTIONAL:
+- If KV is too limiting, include an alternative version using Cloudflare D1 for better querying.
+
+Generate a full starter template I can run, deploy, and iterate on in Cursor.

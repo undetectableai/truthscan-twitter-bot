@@ -1,0 +1,55 @@
+# Task ID: 1
+# Title: Project Setup: Monorepo, TypeScript, and Base Configurations
+# Status: pending
+# Dependencies: None
+# Priority: high
+# Description: Set up the monorepo structure using pnpm workspaces, initialize TypeScript for both the Cloudflare Worker and React dashboard, and create initial configuration files. This includes a root package.json, and separate ones for the worker and dashboard packages. Also, acknowledge and prepare to follow guidelines from `cloudflare.mdc`.
+# Details:
+1. Initialize pnpm monorepo: `pnpm init`, configure `pnpm-workspace.yaml`. 
+2. Create `packages/worker` and `packages/dashboard`. 
+3. In `packages/worker`: `pnpm init`, add `typescript`, `@cloudflare/workers-types@^4.20240314.0`, `itty-router@^4.0.23`. Create `tsconfig.json` (target ES2022, module esnext, moduleResolution node). Create `src/index.ts`. 
+4. In `packages/dashboard`: `pnpm create vite . --template react-ts`. Add `tailwindcss@^3.4.1`, `postcss@^8.4.35`, `autoprefixer@^10.4.17`, `react-router-dom@^6.22.3`, `recharts@^2.12.2`. Create `tailwind.config.js`, `postcss.config.js`. 
+5. Root `package.json` scripts for managing workspaces. 
+6. Basic `wrangler.toml` at project root: `name = "ai-image-twitter-bot"`, `compatibility_date = "YYYY-MM-DD"` (use current date). 
+7. Ensure to consult `cloudflare.mdc` for Cloudflare best practices throughout the project.
+
+# Test Strategy:
+Verify monorepo structure, successful `pnpm install -r`, and basic TypeScript compilation for both worker and dashboard. Check that `wrangler --version` (e.g., `wrangler@^3.40.0`) runs.
+
+# Subtasks:
+## 1. Initialize pnpm Monorepo Structure [pending]
+### Dependencies: None
+### Description: Set up the base directory structure for the monorepo, including creating 'apps' and 'packages' folders as per the app-centric approach.
+### Details:
+Create the root directory, then add 'apps' for deployable applications (worker, dashboard) and 'packages' for shared libraries or utilities.
+
+## 2. Configure pnpm Workspace Files [pending]
+### Dependencies: 1.1
+### Description: Create and configure the 'pnpm-workspace.yaml' file to define the workspace structure for pnpm.
+### Details:
+Add patterns for 'apps/*' and 'packages/*' in 'pnpm-workspace.yaml' at the root to ensure pnpm recognizes all workspace packages.
+
+## 3. Set Up TypeScript for Worker and Dashboard [pending]
+### Dependencies: 1.2
+### Description: Initialize TypeScript configurations for both the Cloudflare Worker (backend) and the React dashboard (frontend) within their respective folders.
+### Details:
+Create separate 'tsconfig.json' files in each app directory, ensuring appropriate compiler options for backend and frontend environments.
+
+## 4. Install Project Dependencies [pending]
+### Dependencies: 1.3
+### Description: Install all necessary dependencies for both the worker and dashboard apps, as well as any shared packages.
+### Details:
+Use pnpm to add dependencies such as React, TypeScript, Cloudflare Worker types, and any shared utilities, ensuring correct workspace linking.
+
+## 5. Create and Organize Configuration Files [pending]
+### Dependencies: 1.4
+### Description: Set up essential configuration files for the monorepo and each app, including package.json, .gitignore, and environment-specific configs.
+### Details:
+Ensure each app and package has its own package.json and relevant config files, and the root has shared configs as needed.
+
+## 6. Consult and Apply Cloudflare Best Practices [pending]
+### Dependencies: 1.5
+### Description: Research and integrate Cloudflare-specific best practices for monorepo structure, worker deployment, and TypeScript usage.
+### Details:
+Review Cloudflare documentation and community guides to optimize the setup for deployment, security, and maintainability.
+

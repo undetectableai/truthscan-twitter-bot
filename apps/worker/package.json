@@ -1,0 +1,61 @@
+{
+  "name": "@truthscan/worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker for Truthscan Twitter Bot - handles Twitter API integration and AI image detection",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "keywords": [
+    "cloudflare-workers",
+    "twitter-api",
+    "ai-detection",
+    "webhook",
+    "image-analysis",
+    "typescript"
+  ],
+  "author": {
+    "name": "Truthscan Team",
+    "email": "contact@truthscan.com",
+    "url": "https://truthscan.com"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:prod": "wrangler deploy --env production",
+    "deploy:staging": "wrangler deploy --env staging",
+    "tail": "wrangler tail",
+    "tail:prod": "wrangler tail --env production",
+    "logs": "wrangler tail --format pretty",
+    "status": "wrangler whoami && echo '--- Secrets ---' && wrangler secret list",
+    "build": "tsc --noEmit",
+    "build:check": "tsc --noEmit && echo '✅ TypeScript compilation successful'",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext .ts --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "clean": "rm -rf dist",
+    "predeploy": "npm run build:check && npm run lint",
+    "predeploy:prod": "npm run build:check && npm run lint",
+    "setup:secrets": "chmod +x scripts/setup-secrets.sh && ./scripts/setup-secrets.sh",
+    "db:create": "wrangler d1 create truthscan-db",
+    "db:migrate": "wrangler d1 execute truthscan-db --file=./schema.sql",
+    "db:migrate:local": "wrangler d1 execute truthscan-db --local --file=./schema.sql",
+    "test:db": "curl -s http://localhost:8787/api/test-db | jq .",
+    "test:api": "curl -s http://localhost:8787/api/detections | jq ."
+  },
+  "dependencies": {
+    "itty-router": "^4.0.23",
+    "twitter-api-v2": "^1.23.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20314.0",
+    "@typescript-eslint/eslint-plugin": "^7.2.0",
+    "@typescript-eslint/parser": "^7.2.0",
+    "eslint": "^8.57.0",
+    "typescript": "^5.4.0",
+    "wrangler": "^4.20.5"
+  }
+}

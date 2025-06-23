@@ -1,0 +1,62 @@
+# Task ID: 4
+# Title: Data Storage: Cloudflare D1 Database Schema and Setup
+# Status: pending
+# Dependencies: 1
+# Priority: high
+# Description: Set up Cloudflare D1 for storing detection results. Define the database schema and configure the D1 binding in `wrangler.toml`.
+# Details:
+1. Define D1 database schema. Create a SQL file (e.g., `schema.sql`): 
+   ```sql
+   CREATE TABLE detections (
+     id TEXT PRIMARY KEY, -- Unique ID for the detection record (e.g., crypto.randomUUID())
+     tweet_id TEXT NOT NULL, -- ID of the tweet containing the image
+     timestamp INTEGER NOT NULL, -- Unix timestamp of detection
+     image_url TEXT NOT NULL,
+     detection_score REAL, -- Probability (e.g., 0.84 for 84%)
+     twitter_handle TEXT NOT NULL -- Handle of the user who authored the tweet_id
+   );
+   CREATE INDEX idx_detections_tweet_id ON detections (tweet_id);
+   CREATE INDEX idx_detections_twitter_handle ON detections (twitter_handle);
+   CREATE INDEX idx_detections_timestamp ON detections (timestamp);
+   ```
+2. Create D1 database using Wrangler: `wrangler d1 create truthscan-db`. 
+3. Add D1 binding to `wrangler.toml` under `[[d1_databases]]`:
+   `binding = "DB" # or your preferred name`
+   `database_name = "truthscan-db"`
+   `database_id = "your-d1-database-id"`
+4. Apply schema: `wrangler d1 execute truthscan-db --file=./schema.sql` (or include in migrations).
+
+# Test Strategy:
+Verify D1 database creation and schema application using `wrangler d1 ...` commands. Check `wrangler.toml` for correct binding. Attempt a simple query from worker code during local dev (`wrangler dev`) to confirm connectivity.
+
+# Subtasks:
+## 1. Define the SQL Schema [pending]
+### Dependencies: None
+### Description: Design and write the SQL schema that outlines the tables, columns, data types, and relationships required for the application.
+### Details:
+Determine the entities, their attributes, and relationships. Write the SQL statements (CREATE TABLE, etc.) that will be used to initialize the database structure.
+
+## 2. Create the D1 Database [pending]
+### Dependencies: 4.1
+### Description: Provision a new Cloudflare D1 database instance using the Cloudflare dashboard or CLI.
+### Details:
+Use the Cloudflare dashboard or the Wrangler CLI to create a new D1 database, preparing it for schema application.
+
+## 3. Configure wrangler.toml Bindings [pending]
+### Dependencies: 4.2
+### Description: Update the wrangler.toml configuration file to bind the D1 database to the Worker project.
+### Details:
+Add the appropriate D1 binding configuration under the [d1_databases] section in wrangler.toml, specifying the database name and binding variable.
+
+## 4. Apply the SQL Schema to the D1 Database [pending]
+### Dependencies: 4.3
+### Description: Execute the SQL schema statements to initialize the database structure within the D1 instance.
+### Details:
+Use the Wrangler CLI or Cloudflare dashboard to run the SQL schema and create the necessary tables and relationships in the D1 database.
+
+## 5. Verify Worker Connectivity to D1 Database [pending]
+### Dependencies: 4.4
+### Description: Test and confirm that the Cloudflare Worker can successfully connect to and query the D1 database using the configured bindings.
+### Details:
+Write and deploy a simple Worker script that performs a test query (e.g., SELECT 1) against the D1 database to ensure connectivity and correct configuration.
+

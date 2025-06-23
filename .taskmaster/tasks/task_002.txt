@@ -1,0 +1,49 @@
+# Task ID: 2
+# Title: Cloudflare Worker: Twitter Webhook Endpoint & CRC Validation
+# Status: pending
+# Dependencies: 1
+# Priority: high
+# Description: Implement the Cloudflare Worker endpoint to handle incoming Twitter webhooks, including the critical Challenge-Response Check (CRC) validation required by Twitter.
+# Details:
+1. In `packages/worker/src/index.ts`, use `itty-router` to define a POST endpoint for `/webhook/twitter`. 
+2. Implement Twitter CRC validation for GET requests to `/webhook/twitter`. Use `crypto.subtle.importKey` and `crypto.subtle.sign` (Web Crypto API) with HMAC-SHA256 and the `TWITTER_CONSUMER_SECRET` (from Wrangler secrets). 
+   Pseudo-code for CRC response: 
+   `const hmac = await crypto.subtle.digest({ name: 'HMAC', hash: 'SHA-256' }, cryptoKey, encoder.encode(crc_token));` 
+   `const hash_in_base64 = btoa(String.fromCharCode(...new Uint8Array(hmac)));` 
+   `return new Response(JSON.stringify({ response_token: 'sha256=' + hash_in_base64 }), { headers: { 'Content-Type': 'application/json' } });` 
+3. For POST requests (actual events), initially log the payload. Ensure the worker is bound to `TWITTER_CONSUMER_SECRET` secret.
+
+# Test Strategy:
+Deploy the worker. Manually trigger a CRC check from the Twitter developer portal or simulate it with a tool like `curl`. Verify the worker responds with the correct `response_token`. Test POST requests and check logs in Cloudflare dashboard.
+
+# Subtasks:
+## 1. Define the Webhook Endpoint [pending]
+### Dependencies: None
+### Description: Set up a secure, publicly accessible HTTPS endpoint capable of handling both GET and POST requests as required by Twitter's webhook API.
+### Details:
+The endpoint should be able to respond to Twitter's CRC challenge (GET) and receive event payloads (POST). Ensure the endpoint URL is registered with Twitter and is compliant with their requirements for webhook URLs.
+
+## 2. Implement CRC Validation Logic [pending]
+### Dependencies: 2.1
+### Description: Develop logic to handle Twitter's CRC (Challenge-Response Check) validation for GET requests to the webhook endpoint.
+### Details:
+When Twitter sends a CRC challenge, the endpoint must compute a response using HMAC SHA-256 with the app's consumer secret and return the correct response format. This ensures Twitter can verify the endpoint's authenticity.
+
+## 3. Handle Secrets Securely [pending]
+### Dependencies: 2.1
+### Description: Implement secure storage and retrieval of Twitter API secrets (consumer key, consumer secret, access tokens) required for CRC validation and webhook authentication.
+### Details:
+Use environment variables or a secure secrets manager to prevent accidental exposure of sensitive credentials. Ensure secrets are not logged or exposed in error messages.
+
+## 4. Log POST Payloads [pending]
+### Dependencies: 2.1
+### Description: Add robust logging for incoming POST requests to the webhook endpoint, capturing payloads and relevant metadata for debugging and auditing.
+### Details:
+Ensure logs include timestamps, request headers, and payloads, but redact or mask any sensitive user data as required by privacy policies.
+
+## 5. Test with Twitter's CRC Challenge [pending]
+### Dependencies: 2.1, 2.2, 2.3, 2.4
+### Description: Verify the webhook endpoint by registering it with Twitter and ensuring it correctly handles the CRC challenge and receives event payloads.
+### Details:
+Use Twitter's developer portal and tools like ngrok to expose the endpoint for testing. Confirm that the CRC response is accepted and that POST payloads are logged as expected.
+

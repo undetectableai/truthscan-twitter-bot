@@ -1,0 +1,69 @@
+{
+  "name": "@truthscan/dashboard",
+  "version": "1.0.0",
+  "description": "React dashboard for Truthscan Twitter Bot - analytics and detection monitoring interface",
+  "private": true,
+  "type": "module",
+  "keywords": [
+    "react",
+    "dashboard",
+    "analytics",
+    "cloudflare-pages",
+    "vite",
+    "typescript",
+    "tailwindcss",
+    "recharts"
+  ],
+  "author": {
+    "name": "Truthscan Team",
+    "email": "contact@truthscan.com",
+    "url": "https://truthscan.com"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "build:check": "tsc && echo '✅ TypeScript compilation successful'",
+    "build:clean": "npm run clean && npm run build",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint . --ext ts,tsx --fix",
+    "preview": "vite preview",
+    "preview:build": "npm run build && vite preview",
+    "clean": "rm -rf dist",
+    "predeploy": "npm run build:check && npm run lint",
+    "deploy": "npm run build:clean && wrangler pages deploy dist",
+    "deploy:staging": "npm run build:clean && wrangler pages deploy dist --project-name truthscan-dashboard-staging",
+    "deploy:prod": "npm run build:clean && wrangler pages deploy dist --project-name truthscan-dashboard-prod",
+    "pages:create": "wrangler pages project create truthscan-dashboard",
+    "pages:create:staging": "wrangler pages project create truthscan-dashboard-staging",
+    "pages:create:prod": "wrangler pages project create truthscan-dashboard-prod",
+    "pages:list": "wrangler pages project list",
+    "test:build": "npm run build && echo '✅ Build test successful'",
+    "test:preview": "npm run preview:build"
+  },
+  "dependencies": {
+    "date-fns": "^4.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.3",
+    "recharts": "^2.12.2"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@typescript-eslint/eslint-plugin": "^7.2.0",
+    "@typescript-eslint/parser": "^7.2.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.17",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.6",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "vite": "^5.2.0",
+    "wrangler": "^3.40.0"
+  }
+}

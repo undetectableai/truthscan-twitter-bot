@@ -1,0 +1,47 @@
+# Task ID: 9
+# Title: Frontend: Dashboard - Implement Charts (Recharts)
+# Status: pending
+# Dependencies: 8
+# Priority: medium
+# Description: Implement charts (Pie chart for AI vs Real breakdown, Timeline/Bar graph for detections per day) in the dashboard using Recharts.
+# Details:
+1. Ensure `recharts@^2.12.2` is installed in `packages/dashboard`. 
+2. Create components for each chart. 
+3. **Pie Chart (AI vs Real):** 
+   - Process fetched detection data: count items with `detection_score > 0.5` (configurable threshold) as 'AI' and others as 'Real'. 
+   - Data format for Recharts: `[{ name: 'AI', value: aiCount }, { name: 'Real', value: realCount }]`. 
+   - Use `<PieChart>`, `<Pie>`, `<Cell>`, `<Tooltip>`, `<Legend>` components from Recharts. 
+4. **Timeline/Bar Graph (Detections per Day):** 
+   - Aggregate detections by day: group by `new Date(timestamp * 1000).toISOString().split('T')[0]`. 
+   - Data format for Recharts: `[{ date: 'YYYY-MM-DD', count: N }, ...]`. 
+   - Use `<BarChart>` (or `<LineChart>`), `<XAxis dataKey="date">`, `<YAxis>`, `<CartesianGrid>`, `<Tooltip>`, `<Legend>`, `<Bar dataKey="count">` components. 
+5. Add charts to the `DashboardPage` component.
+
+# Test Strategy:
+Populate D1 with diverse data (various scores, different dates). Verify charts render correctly in the dashboard. Check tooltips, legends, and data accuracy. Test responsiveness if applicable. Test edge cases like no data or data for only one category/day.
+
+# Subtasks:
+## 1. Install Recharts Library [pending]
+### Dependencies: None
+### Description: Set up the Recharts charting library in the React project using npm to enable chart components.
+### Details:
+Run 'npm install recharts' in the project directory and verify the installation in package.json.
+
+## 2. Process Detection Data [pending]
+### Dependencies: 9.1
+### Description: Aggregate and format the detection data to match the data structure required by Recharts components.
+### Details:
+Transform raw detection data into arrays of objects suitable for Pie and Bar charts, ensuring each object contains the necessary keys (e.g., category, value/count).
+
+## 3. Implement Pie and Bar Chart Components [pending]
+### Dependencies: 9.2
+### Description: Create reusable Pie and Bar chart components using Recharts, configured to display the processed detection data.
+### Details:
+Import PieChart and BarChart from Recharts, set up chart props, and ensure correct rendering with sample data.
+
+## 4. Integrate Charts into Dashboard [pending]
+### Dependencies: 9.3
+### Description: Embed the Pie and Bar chart components into the main dashboard UI, ensuring responsive layout and data updates.
+### Details:
+Update the dashboard layout to include the new chart components, pass processed data as props, and test for correct visualization.
+

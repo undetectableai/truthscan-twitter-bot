@@ -1,0 +1,87 @@
+{
+  "name": "truthscan-twitter-bot",
+  "version": "1.0.0",
+  "description": "Real-time Twitter bot that detects AI-generated images using Cloudflare Workers and React dashboard",
+  "private": true,
+  "type": "module",
+  "homepage": "https://github.com/your-username/truthscan-twitter-bot#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/truthscan-twitter-bot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/truthscan-twitter-bot/issues"
+  },
+  "scripts": {
+    "build": "pnpm --recursive run build",
+    "build:check": "pnpm --filter worker run build:check && pnpm --filter dashboard run build:check",
+    "dev": "pnpm --recursive run dev",
+    "lint": "pnpm --recursive run lint",
+    "lint:fix": "pnpm --recursive run lint:fix",
+    "test": "pnpm --recursive run test",
+    "test:build": "pnpm build && echo '✅ All builds successful'",
+    "clean": "pnpm --recursive run clean",
+    "install:all": "pnpm install -r",
+    
+    "worker:dev": "pnpm --filter worker run dev",
+    "worker:deploy": "pnpm --filter worker run deploy",
+    "worker:deploy:staging": "pnpm --filter worker run deploy:staging", 
+    "worker:deploy:prod": "pnpm --filter worker run deploy:prod",
+    "worker:logs": "pnpm --filter worker run logs",
+    "worker:status": "pnpm --filter worker run status",
+    
+    "dashboard:dev": "pnpm --filter dashboard run dev",
+    "dashboard:build": "pnpm --filter dashboard run build",
+    "dashboard:deploy": "pnpm --filter dashboard run deploy",
+    "dashboard:deploy:staging": "pnpm --filter dashboard run deploy:staging",
+    "dashboard:deploy:prod": "pnpm --filter dashboard run deploy:prod",
+    "dashboard:preview": "pnpm --filter dashboard run preview",
+    
+    "predeploy": "pnpm build:check && pnpm lint",
+    "deploy": "pnpm worker:deploy && pnpm dashboard:deploy",
+    "deploy:staging": "pnpm worker:deploy:staging && pnpm dashboard:deploy:staging",
+    "deploy:prod": "pnpm worker:deploy:prod && pnpm dashboard:deploy:prod",
+    "deploy:all": "pnpm deploy",
+    
+    "setup": "pnpm install:all && pnpm --filter worker run setup:secrets",
+    "setup:staging": "echo 'Use: pnpm --filter worker run setup:secrets' for environment-specific setup",
+    "setup:prod": "echo 'Use: pnpm --filter worker run setup:secrets' for environment-specific setup",
+    
+    "pages:create": "pnpm --filter dashboard run pages:create && pnpm --filter dashboard run pages:create:staging && pnpm --filter dashboard run pages:create:prod",
+    "pages:list": "pnpm --filter dashboard run pages:list",
+    
+    "db:setup": "pnpm --filter worker run db:create && pnpm --filter worker run db:migrate",
+    "db:migrate": "pnpm --filter worker run db:migrate",
+    "db:migrate:local": "pnpm --filter worker run db:migrate:local"
+  },
+  "keywords": [
+    "twitter-bot",
+    "ai-detection",
+    "ai-image-detection",
+    "cloudflare-workers",
+    "cloudflare-pages",
+    "image-analysis",
+    "real-time",
+    "monorepo",
+    "typescript",
+    "react",
+    "undetectable-ai",
+    "social-media-bot",
+    "automation"
+  ],
+  "author": {
+    "name": "Truthscan Team",
+    "email": "contact@truthscan.com",
+    "url": "https://truthscan.com"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.15.1",
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "typescript": "^5.3.3"
+  }
+} 

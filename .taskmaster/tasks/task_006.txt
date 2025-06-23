@@ -1,0 +1,57 @@
+# Task ID: 6
+# Title: Cloudflare Worker: Tweet Reply Logic
+# Status: pending
+# Dependencies: 5
+# Priority: medium
+# Description: Implement the logic for the bot to reply to the original tweet with the AI detection score. This requires using the Twitter API.
+# Details:
+1. Install `twitter-api-v2@^1.16.0` in `packages/worker`. 
+2. Initialize `TwitterApi` client using credentials from Wrangler secrets (`TWITTER_CONSUMER_KEY`, `TWITTER_CONSUMER_SECRET`, `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_SECRET`). 
+   ```typescript
+   import { TwitterApi } from 'twitter-api-v2';
+   // ... inside worker event handler
+   const twitterClient = new TwitterApi({
+     appKey: env.TWITTER_CONSUMER_KEY,
+     appSecret: env.TWITTER_CONSUMER_SECRET,
+     accessToken: env.TWITTER_ACCESS_TOKEN,
+     accessSecret: env.TWITTER_ACCESS_SECRET,
+   }).readWrite;
+   ```
+3. After getting the `ai_probability` (score), construct the reply message: `“🧠 This image looks ${Math.round(score * 100)}% likely to be AI-generated.”` 
+4. Post the reply using `twitterClient.v2.reply(replyText, originalTweetId)`. 
+5. Handle potential errors from the Twitter API (e.g., rate limits, permissions).
+
+# Test Strategy:
+Ensure Twitter API credentials are set as secrets. Trigger the bot with a test tweet. Verify that the bot replies to the tweet correctly with the detection score. Check for errors in worker logs if the reply fails. Test with different scores.
+
+# Subtasks:
+## 1. Install Twitter API Client Library [pending]
+### Dependencies: None
+### Description: Install the appropriate Python library for interacting with the Twitter API, such as 'twitter-api-client', 'python-twitter', or 'twitter-stream.py', using pip.
+### Details:
+Choose and install the Twitter API client library that best fits the project requirements. For example, run 'pip install twitter-api-client' or 'pip install python-twitter' in the command line.
+
+## 2. Initialize API Client with Secrets [pending]
+### Dependencies: 6.1
+### Description: Configure the Twitter API client with the necessary authentication credentials (API keys and tokens) to enable secure access.
+### Details:
+Store API credentials securely (e.g., in environment variables or a configuration file like ~/.twitter-keys.yaml) and initialize the client in code using these secrets.
+
+## 3. Compose Reply Messages [pending]
+### Dependencies: 6.2
+### Description: Develop logic to generate or format reply messages based on the content of detected tweets.
+### Details:
+Implement a function or module that takes input (such as the original tweet text or user handle) and returns a properly formatted reply message.
+
+## 4. Post Replies to Tweets [pending]
+### Dependencies: 6.3
+### Description: Use the initialized API client to programmatically post reply messages to specific tweets.
+### Details:
+Write code that calls the appropriate API endpoint to reply to tweets, ensuring the reply is linked to the correct tweet ID and user.
+
+## 5. Handle API Errors and Exceptions [pending]
+### Dependencies: 6.4
+### Description: Implement robust error handling to manage and log API errors, rate limits, and other exceptions during the reply process.
+### Details:
+Add try/except blocks and logging to capture and respond to API errors, such as authentication failures, rate limiting, or network issues.
+

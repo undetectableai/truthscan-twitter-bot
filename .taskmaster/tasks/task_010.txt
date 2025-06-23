@@ -1,0 +1,59 @@
+# Task ID: 10
+# Title: Security: Secrets Management and Dashboard Protection
+# Status: pending
+# Dependencies: 1, 7
+# Priority: medium
+# Description: Implement security measures: secure storage of credentials using Wrangler secrets and protect the dashboard using Cloudflare Access (or Basic Auth as a simpler alternative).
+# Details:
+1. **Wrangler Secrets:** Identify all sensitive credentials: `TWITTER_CONSUMER_KEY`, `TWITTER_CONSUMER_SECRET`, `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_SECRET`, `AI_API_KEY` (if used), `BASIC_AUTH_USERNAME`, `BASIC_AUTH_PASSWORD` (if using Basic Auth). 
+   - Add these to Wrangler secrets: `wrangler secret put MY_SECRET_KEY`. 
+   - Access them in worker code via `env.MY_SECRET_KEY`. 
+2. **Dashboard Protection (Cloudflare Access preferred for Pages):** 
+   - **Cloudflare Access:** Set up an Access Policy in the Cloudflare dashboard for the application deployed to Cloudflare Pages. This can restrict access based on email, IP, identity providers, etc. Document this setup process. 
+   - **Alternative (Basic Auth via Worker for API, if dashboard is public SPA):** If API endpoints like `/api/detections` need protection and the dashboard itself is a public SPA, a Basic Auth middleware can be added to the worker for specific routes. 
+     ```typescript
+     // Basic Auth middleware example for itty-router
+     const basicAuth = (request, env) => { 
+       const authHeader = request.headers.get('Authorization'); 
+       if (!authHeader || !authHeader.startsWith('Basic ')) return new Response('Unauthorized', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="protected"' }}); 
+       const [username, password] = atob(authHeader.substring(6)).split(':'); 
+       if (username !== env.BASIC_AUTH_USERNAME || password !== env.BASIC_AUTH_PASSWORD) return new Response('Forbidden', { status: 403 }); 
+     };
+     // router.all('/api/*', basicAuth, otherHandler...);
+     ```
+   The PRD asks to protect the dashboard. If served by Pages, Cloudflare Access is the direct method.
+
+# Test Strategy:
+Verify secrets are not hardcoded. Test accessing secrets from the worker. For Cloudflare Access: attempt to access the deployed dashboard URL from an unauthorized account/browser session and verify access is denied, then test with an authorized one. For Basic Auth (if used): test API endpoints with and without correct credentials.
+
+# Subtasks:
+## 1. Identify Required Secrets and Sensitive Data [pending]
+### Dependencies: None
+### Description: Catalog all secrets and sensitive configuration values needed by the application, such as API keys, passwords, and tokens, ensuring nothing sensitive is hardcoded or exposed.
+### Details:
+Review application code and deployment requirements to list all secrets. Determine which secrets are needed for different environments (development, staging, production).
+
+## 2. Configure Wrangler and Cloudflare Secrets [pending]
+### Dependencies: 10.1
+### Description: Set up secrets using Wrangler CLI and/or Cloudflare dashboard, ensuring secrets are securely stored and referenced in the Worker configuration.
+### Details:
+Use Wrangler commands or the dashboard to add secrets as environment variables. For advanced use, configure Secrets Store bindings in the Wrangler config file or dashboard, assigning appropriate variable names and ensuring correct environment targeting.
+
+## 3. Implement Dashboard Protection (Cloudflare Access or Basic Auth) [pending]
+### Dependencies: 10.2
+### Description: Protect the dashboard or sensitive endpoints by configuring Cloudflare Access policies or implementing Basic Authentication within the Worker.
+### Details:
+Choose between Cloudflare Access (for identity-based access control) or Basic Auth (for simple password protection). Configure the chosen method, referencing secrets as needed for credentials.
+
+## 4. Document Secrets Management and Access Control Setup [pending]
+### Dependencies: 10.3
+### Description: Create comprehensive documentation detailing the secrets management process, Wrangler configuration, and dashboard protection setup for future maintainers.
+### Details:
+Include instructions for adding/updating secrets, configuring environment variables, and managing access controls. Document any environment-specific considerations and troubleshooting tips.
+
+## 5. Test and Validate Access Controls and Secrets Usage [pending]
+### Dependencies: 10.4
+### Description: Verify that secrets are correctly injected and accessed by the Worker, and that dashboard protection mechanisms are functioning as intended.
+### Details:
+Perform end-to-end tests to ensure secrets are not exposed, access controls block unauthorized users, and all intended users can access the dashboard. Address any issues found during testing.
+

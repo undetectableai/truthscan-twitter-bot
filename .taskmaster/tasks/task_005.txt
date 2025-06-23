@@ -1,0 +1,60 @@
+# Task ID: 5
+# Title: Cloudflare Worker: AI Detection API Call (Mock) & D1 Storage
+# Status: pending
+# Dependencies: 3, 4
+# Priority: medium
+# Description: Implement the logic to send extracted image URLs to a (mocked) AI image detection API and store the detection results in Cloudflare D1.
+# Details:
+1. Create a function `getAIDetection(imageUrl, env)` in the worker. 
+2. This function will call the AI detection API. For now, mock it: 
+   `async function getAIDetection(imageUrl: string, env: Env): Promise<{ ai_probability: number }> { 
+     if (env.AI_API_ENDPOINT) { 
+       // const response = await fetch(env.AI_API_ENDPOINT, { method: 'POST', body: JSON.stringify({ image_url: imageUrl }), headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${env.AI_API_KEY}`} }); 
+       // return await response.json(); 
+       // For now, simulate a fetch even if endpoint is set but not real 
+       console.log(`Simulating fetch to ${env.AI_API_ENDPOINT} for ${imageUrl}`); 
+     } 
+     console.log(`Mock detecting image: ${imageUrl}`); 
+     return { ai_probability: Math.random() }; 
+   }`
+3. For each detected image, call `getAIDetection`. 
+4. Store results in D1: 
+   `const detectionId = crypto.randomUUID();`
+   `const stmt = env.DB.prepare('INSERT INTO detections (id, tweet_id, timestamp, image_url, detection_score, twitter_handle) VALUES (?, ?, ?, ?, ?, ?)');` 
+   `await stmt.bind(detectionId, originalTweetId, Math.floor(Date.now()/1000), imageUrl, aiScore, authorHandle).run();`
+5. Ensure `AI_API_ENDPOINT` and `AI_API_KEY` can be configured via secrets.
+
+# Test Strategy:
+Trigger the webhook with an image. Verify the mock AI detection function is called. Check Cloudflare D1 (via `wrangler d1 execute` or dashboard) to ensure detection records are created with correct data (tweet ID, timestamp, image URL, random score, handle).
+
+# Subtasks:
+## 1. Implement Mock AI Detection Function [pending]
+### Dependencies: None
+### Description: Develop a mock function that simulates AI detection by accepting input text and returning a structured verdict and probability, mimicking a real API response.
+### Details:
+The function should accept text input, process it (optionally with random or fixed logic), and return a dictionary with keys like 'verdict' and 'ai_probability'.
+
+## 2. Integrate Image Extraction Logic [pending]
+### Dependencies: 5.1
+### Description: Create or adapt logic to extract text from images, preparing the data for AI detection.
+### Details:
+This may involve using OCR libraries to convert image content to text, ensuring compatibility with the mock AI detection function.
+
+## 3. Store Detection Results in D1 Database [pending]
+### Dependencies: 5.2
+### Description: Design and implement the logic to persist AI detection results, including extracted text and verdicts, in the D1 database.
+### Details:
+Define the schema for storing results, handle database connections, and ensure data is written reliably after each detection.
+
+## 4. Handle Secrets and Configuration [pending]
+### Dependencies: 5.3
+### Description: Implement secure handling of secrets and configuration values, such as API keys or database credentials, required for the integration.
+### Details:
+Use environment variables or a secrets manager to securely access and inject sensitive values into the application.
+
+## 5. Verify Data Persistence and End-to-End Flow [pending]
+### Dependencies: 5.4
+### Description: Test the complete workflow from image extraction through AI detection to database storage, verifying that data is correctly persisted and retrievable.
+### Details:
+Write integration tests or manual test scripts to confirm that each component works together and that results are stored and accessible in D1.
+

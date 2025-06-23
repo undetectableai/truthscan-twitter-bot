@@ -1,0 +1,60 @@
+# Task ID: 11
+# Title: Wrangler Configuration and Deployment Setup
+# Status: pending
+# Dependencies: 1, 2, 4, 7
+# Priority: medium
+# Description: Finalize `wrangler.toml` for deploying the Cloudflare Worker (including D1 binding) and the React dashboard to Cloudflare Pages from the monorepo.
+# Details:
+1. **Worker Configuration (`wrangler.toml`):** 
+   - `main = "packages/worker/dist/index.js"` (or similar, based on build output). 
+   - `build.command = "cd packages/worker && pnpm build"` (assuming a build script in worker's package.json that outputs to `dist`). 
+   - Ensure `compatibility_date` is set. 
+   - Confirm D1 binding: `[[d1_databases]] binding = "DB" ...` 
+   - List all necessary secrets under `[vars]` for local dev (if not using `.dev.vars`) and ensure they are set in Cloudflare for deployment. 
+2. **Pages Configuration (`wrangler.toml`):** 
+   - `[pages_build_output_dir] = "packages/dashboard/dist"` 
+   - May need a root `package.json` script that builds both worker and dashboard for Pages deployment if Pages builds the whole monorepo. Or, configure Pages Git integration to point to `packages/dashboard` and set build command `pnpm build`, with root `pnpm install`. 
+   - For a unified deployment: `wrangler deploy`. 
+3. **Local Development:** Ensure `wrangler dev` works for the worker, serving it locally. For dashboard, `pnpm --filter dashboard dev`. For integrated local Pages dev: `wrangler pages dev ./packages/dashboard/dist --d1=YOUR_DB_NAME --binding=DB:YOUR_DB_NAME`. 
+4. Add deployment scripts to root `package.json`: e.g., `"deploy": "wrangler deploy"`.
+
+# Test Strategy:
+Test `wrangler dev` for local worker functionality. Test `pnpm --filter dashboard dev` for local dashboard. Perform a full deployment using `wrangler deploy`. Verify the worker is active, webhooks function, and the dashboard is accessible and working on the Cloudflare Pages URL. Check D1 binding and secrets are correctly configured in deployed environment.
+
+# Subtasks:
+## 1. Configure wrangler.toml for Worker [pending]
+### Dependencies: None
+### Description: Set up the wrangler.toml file for the Cloudflare Worker, including specifying routes, D1 bindings, and any required secrets.
+### Details:
+Ensure the wrangler.toml includes all necessary configuration for deploying the Worker, such as environment variables, account ID, and binding definitions.
+
+## 2. Configure wrangler.toml and Build Settings for Dashboard (Pages) [pending]
+### Dependencies: None
+### Description: Set up the wrangler.toml and build configuration for the dashboard deployed via Cloudflare Pages, including build commands, output directories, and environment variables.
+### Details:
+Define the build command and output directory in accordance with the framework used. Specify the root directory if working within a monorepo. Add any required environment variables for Pages deployment.
+
+## 3. Set Up Deployment Scripts for Worker and Dashboard [pending]
+### Dependencies: 11.1, 11.2
+### Description: Create deployment scripts to automate the deployment process for both the Worker and the dashboard, ensuring correct sequencing and environment targeting.
+### Details:
+Scripts should handle building, uploading, and deploying assets for both Worker and Pages, possibly using Wrangler and direct upload methods.
+
+## 4. Verify Local Development Environment [pending]
+### Dependencies: 11.1, 11.2
+### Description: Test the local development setup for both the Worker and the dashboard to ensure configuration files and bindings work as expected.
+### Details:
+Run local development servers or emulators for both components, checking for correct environment variable loading and D1 binding functionality.
+
+## 5. Test Full Deployment to Cloudflare [pending]
+### Dependencies: 11.3, 11.4
+### Description: Deploy both the Worker and the dashboard to Cloudflare and verify that all components function correctly in the production environment.
+### Details:
+Check that the deployed Worker and dashboard interact as expected, with D1 bindings and secrets properly configured and accessible.
+
+## 6. Document Configuration and Deployment Process [pending]
+### Dependencies: 11.1, 11.2, 11.3, 11.4, 11.5
+### Description: Create documentation outlining the configuration, deployment scripts, and verification steps for future reference and team onboarding.
+### Details:
+Include details on wrangler.toml settings, build commands, environment variables, deployment scripts, and troubleshooting tips.
+

@@ -1,0 +1,41 @@
+# Task ID: 3
+# Title: Cloudflare Worker: Tweet Parsing and Image URL Extraction
+# Status: pending
+# Dependencies: 2
+# Priority: high
+# Description: Enhance the Twitter webhook handler to parse incoming tweet mention events and extract image URLs from the tweet data.
+# Details:
+1. Parse the JSON payload from Twitter webhook POST requests. 
+2. Identify `tweet_create_events` specifically for mentions of the bot's Twitter handle. 
+3. Extract image URLs from `tweet.entities.media` or `tweet.extended_entities.media` (if present). Look for `type === 'photo'` and get `media_url_https`. 
+4. Handle cases with no images or multiple images (process each image URL). 
+5. Extract `tweet.id_str` (original tweet ID) and `tweet.user.screen_name` (author's handle).
+
+# Test Strategy:
+Send mock Twitter webhook payloads (JSON) representing mentions with and without images, and with multiple images. Verify that image URLs, tweet ID, and user handle are correctly extracted and logged. Test with various tweet structures.
+
+# Subtasks:
+## 1. Parse Webhook Payloads [pending]
+### Dependencies: None
+### Description: Implement logic to securely receive and parse incoming webhook payloads, ensuring the payload is valid JSON and verifying any required headers or signatures.
+### Details:
+Set up endpoint to receive webhook POST requests, validate payload structure, and handle security checks such as signature verification if required.
+
+## 2. Identify Relevant Tweet Events [pending]
+### Dependencies: 3.1
+### Description: Analyze the parsed payload to determine if it contains tweet events relevant for image extraction (e.g., new tweet, retweet, reply).
+### Details:
+Check event type fields and filter for tweet-related events. Ignore unrelated webhook events.
+
+## 3. Extract Image URLs from Tweet Events [pending]
+### Dependencies: 3.2
+### Description: From relevant tweet events, extract all image URLs present in the payload, handling the structure of Twitter's media entities.
+### Details:
+Navigate the payload's JSON structure to locate media entities and collect all image URLs for further processing.
+
+## 4. Handle Edge Cases: No Images and Multiple Images [pending]
+### Dependencies: 3.3
+### Description: Implement logic to robustly handle cases where tweets contain no images or multiple images, ensuring correct output and error handling.
+### Details:
+Return an empty result or appropriate message if no images are found; return a list or array of URLs if multiple images are present.
+

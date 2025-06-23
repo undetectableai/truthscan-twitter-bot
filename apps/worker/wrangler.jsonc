@@ -1,0 +1,82 @@
+{
+  "name": "truthscan-twitter-bot",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-02-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "vars": {
+    "ENVIRONMENT": "development",
+    "TWITTER_BOT_USERNAME": "truth_scan"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "truthscan-db",
+      "database_id": "d7d85fbc-0c60-4c6b-a9e3-9f35f7582c6d"
+    }
+  ],
+  "env": {
+    "staging": {
+      "name": "truthscan-twitter-bot-staging",
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "TWITTER_BOT_USERNAME": "truth_scan"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "truthscan-db-staging",
+          "database_id": "d7d85fbc-0c60-4c6b-a9e3-9f35f7582c6d"
+        }
+      ]
+    },
+    "production": {
+      "name": "truthscan-twitter-bot-prod",
+      "vars": {
+        "ENVIRONMENT": "production",
+        "TWITTER_BOT_USERNAME": "truth_scan"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "truthscan-db-prod",
+          "database_id": "d7d85fbc-0c60-4c6b-a9e3-9f35f7582c6d"
+        }
+      ]
+    }
+  }
+  
+  // Secrets to be configured via Wrangler CLI:
+  // Development: wrangler secret put TWITTER_API_KEY
+  // Staging: wrangler secret put TWITTER_API_KEY --env staging
+  // Production: wrangler secret put TWITTER_API_KEY --env production
+  //
+  // Required secrets for all environments:
+  // - TWITTER_API_KEY
+  // - TWITTER_API_KEY_SECRET
+  // - TWITTER_BEARER_TOKEN 
+  // - TWITTER_ACCESS_TOKEN
+  // - TWITTER_ACCESS_TOKEN_SECRET
+  // - AI_DETECTION_API_KEY
+  // Optional: BASIC_AUTH_USERNAME, BASIC_AUTH_PASSWORD
+  
+  // D1 Database Setup Instructions:
+  // Development: 
+  //   wrangler d1 create truthscan-db
+  //   wrangler d1 execute truthscan-db --local --file=./schema.sql
+  //   wrangler d1 execute truthscan-db --file=./schema.sql
+  // 
+  // Staging:
+  //   wrangler d1 create truthscan-db-staging
+  //   wrangler d1 execute truthscan-db-staging --file=./schema.sql
+  //
+  // Production:
+  //   wrangler d1 create truthscan-db-prod  
+  //   wrangler d1 execute truthscan-db-prod --file=./schema.sql
+} 
