@@ -140,16 +140,21 @@ async function isAlreadyProcessed(tweetId: string, env: Env): Promise<boolean> {
 }
 
 /**
- * Poll Twitter for recent mentions using the search API
+ * Smart incremental Twitter mention polling - only fetches tweets newer than sinceId
+ * This prevents duplicate processing and optimizes API usage
  */
-async function pollTwitterMentions(env: Env, ctx: ExecutionContext): Promise<void> {
+async function pollTwitterMentionsIncremental(
+  env: Env, 
+  ctx: ExecutionContext, 
+  sinceId: string | null = null
+): Promise<{ newTweetsCount: number; highestTweetId: string | null }> {
   try {
-    console.log('Starting Twitter mention polling...');
+    console.log('Starting smart Twitter mention polling...', sinceId ? `since ID: ${sinceId}` : 'initial call');
 
     // Check rate limits
     if (!canMakeTwitterRequest()) {
       console.log('Twitter API rate limit reached, skipping polling cycle');
-      return;
+      return { newTweetsCount: 0, highestTweetId: null };
     }
 
     // Bot username from environment
@@ -157,7 +162,6 @@ async function pollTwitterMentions(env: Env, ctx: ExecutionContext): Promise<voi
     
     // Search for recent mentions using direct API call
     const searchQuery = `@${botUsername}`;
-    console.log('Searching for mentions:', searchQuery);
 
     recordTwitterRequest();
     
@@ -170,6 +174,12 @@ async function pollTwitterMentions(env: Env, ctx: ExecutionContext): Promise<voi
     searchUrl.searchParams.set('expansions', 'author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.attachments.media_keys');
     searchUrl.searchParams.set('max_results', '10');
     searchUrl.searchParams.set('sort_order', 'recency');
+    
+    // KEY OPTIMIZATION: Only fetch tweets newer than the last processed one
+    if (sinceId) {
+      searchUrl.searchParams.set('since_id', sinceId);
+      console.log(`Using since_id parameter: ${sinceId}`);
+    }
 
     const response = await fetch(searchUrl.toString(), {
       headers: {
@@ -185,29 +195,42 @@ async function pollTwitterMentions(env: Env, ctx: ExecutionContext): Promise<voi
 
     const searchResults: TwitterV2SearchResponse = await response.json();
 
-    console.log('Twitter search completed:', {
+    console.log('Smart Twitter search completed:', {
       resultCount: searchResults.data?.length || 0,
+      sinceId: sinceId || 'none',
       rateLimit: twitterRateLimit
     });
 
     if (!searchResults.data || searchResults.data.length === 0) {
-      console.log('No recent mentions found');
-      return;
+      console.log(sinceId ? 'No new mentions found since last check' : 'No recent mentions found');
+      return { newTweetsCount: 0, highestTweetId: sinceId };
+    }
+
+    // Find the highest tweet ID for the next incremental call
+    let highestTweetId = sinceId;
+    const tweetIds = searchResults.data.map(t => t.id);
+    
+    // Twitter IDs are sortable as strings (they're snowflake IDs)
+    if (tweetIds.length > 0) {
+      highestTweetId = tweetIds.sort().reverse()[0]; // Get the highest ID
     }
 
     // Process each found mention
     const backgroundTasks: Promise<void>[] = [];
+    let newTweetsProcessed = 0;
     
     for (const tweet of searchResults.data) {
       try {
         const tweetId = tweet.id;
         
-        // Check for deduplication
+        // Backup check for deduplication (should be rare with since_id)
         const alreadyProcessed = await isAlreadyProcessed(tweetId, env);
         if (alreadyProcessed) {
-          console.log(`Tweet ${tweetId} already processed, skipping`);
+          console.log(`Tweet ${tweetId} already processed (backup check), skipping`);
           continue;
         }
+
+        newTweetsProcessed++;
 
         // Get user info from includes
         const author = searchResults.includes?.users?.find(
@@ -238,7 +261,7 @@ async function pollTwitterMentions(env: Env, ctx: ExecutionContext): Promise<voi
                 .map(media => media.url!)
                 .filter(url => url);
                 
-              console.log('Found reply to tweet with images:', {
+              console.log('Found NEW reply to tweet with images:', {
                 originalTweetId: referencedTweetId,
                 imageCount: imageUrls.length
               });
@@ -257,7 +280,7 @@ async function pollTwitterMentions(env: Env, ctx: ExecutionContext): Promise<voi
             .filter(url => url);
         }
 
-        console.log('Found mention:', {
+        console.log('Found NEW mention:', {
           tweetId,
           author: authorUsername,
           isReply,
@@ -299,14 +322,20 @@ async function pollTwitterMentions(env: Env, ctx: ExecutionContext): Promise<voi
 
     // Handle background tasks
     if (backgroundTasks.length > 0) {
-      console.log(`Processing ${backgroundTasks.length} images in background`);
+      console.log(`Processing ${backgroundTasks.length} images from ${newTweetsProcessed} new tweets in background`);
       ctx.waitUntil(Promise.all(backgroundTasks));
     }
 
-    console.log('Twitter polling completed successfully');
+    console.log(`Smart Twitter polling completed: ${newTweetsProcessed} new tweets processed`);
+    
+    return { 
+      newTweetsCount: newTweetsProcessed, 
+      highestTweetId: highestTweetId 
+    };
 
   } catch (error) {
-    console.error('Error in Twitter mention polling:', error);
+    console.error('Error in smart Twitter mention polling:', error);
+    return { newTweetsCount: 0, highestTweetId: sinceId };
   }
 }
 
@@ -358,9 +387,10 @@ export default {
     });
 
     try {
-      // Run Twitter mention polling 4 times within this minute (every 15 seconds)
-      // This maximizes our Basic plan rate limit: 60 requests / 15 mins = 4 per minute
+      // Smart polling: 4 calls per minute, but each call only fetches NEW tweets
+      // This maximizes our Basic plan rate limit while avoiding duplicate processing
       const pollingPromises: Promise<void>[] = [];
+      let lastProcessedTweetId: string | null = null;
       
       for (let i = 0; i < 4; i++) {
         const delayMs = i * 15000; // 0s, 15s, 30s, 45s
@@ -368,11 +398,18 @@ export default {
         const pollingPromise = new Promise<void>((resolve) => {
           setTimeout(async () => {
             try {
-              console.log(`Starting polling call ${i + 1}/4 (${delayMs/1000}s delay)`);
-              await pollTwitterMentions(env, ctx);
-              console.log(`Completed polling call ${i + 1}/4`);
+              console.log(`Starting smart polling call ${i + 1}/4 (${delayMs/1000}s delay)`);
+              const result = await pollTwitterMentionsIncremental(env, ctx, lastProcessedTweetId);
+              
+              // Update the last processed tweet ID for the next call
+              if (result.highestTweetId) {
+                lastProcessedTweetId = result.highestTweetId;
+                console.log(`Updated last processed tweet ID to: ${lastProcessedTweetId}`);
+              }
+              
+              console.log(`Completed smart polling call ${i + 1}/4 - Found ${result.newTweetsCount} new tweets`);
             } catch (error) {
-              console.error(`Error in polling call ${i + 1}/4:`, error);
+              console.error(`Error in smart polling call ${i + 1}/4:`, error);
             }
             resolve();
           }, delayMs);
@@ -384,10 +421,10 @@ export default {
       // Use waitUntil to ensure all polling calls complete
       ctx.waitUntil(Promise.all(pollingPromises));
       
-      console.log('Scheduled 4 polling calls (every 15s) for this minute');
+      console.log('Scheduled 4 smart polling calls (incremental, every 15s) for this minute');
       
     } catch (error) {
-      console.error('Error in scheduled Twitter polling setup:', error);
+      console.error('Error in scheduled Twitter smart polling setup:', error);
     }
   },
 };
