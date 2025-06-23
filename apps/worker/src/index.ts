@@ -300,12 +300,11 @@ async function pollTwitterMentionsIncremental(
 
         // Process images if found
         if (imageUrls.length > 0) {
-          for (const imageUrl of imageUrls) {
-            const processingTask = processImageAndStore(imageUrl, parsedTweet, env).catch(error => {
-              console.error(`Image processing failed for tweet ${tweetId}:`, error);
-            });
-            backgroundTasks.push(processingTask);
-          }
+          // Use batch processing for consolidated reply
+          const batchProcessingTask = processAllImagesAndReply(imageUrls, parsedTweet, env).catch(error => {
+            console.error(`Batch image processing failed for tweet ${tweetId}:`, error);
+          });
+          backgroundTasks.push(batchProcessingTask);
         } else {
           if (isReply) {
             console.log(`No images found in original tweet that was replied to (reply tweet ID: ${tweetId})`);
@@ -707,26 +706,16 @@ async function handleTwitterEvent(request: Request, env: Env, ctx: ExecutionCont
           
           // Process images with AI detection if present
           if (parsedTweet.imageUrls.length > 0) {
-            console.log(`Processing ${parsedTweet.imageUrls.length} image(s) for AI detection...`);
+            console.log(`Processing ${parsedTweet.imageUrls.length} image(s) for AI detection with consolidated reply...`);
             
-            // For testing: await the first image to see full flow, background for rest
-            let isFirstImage = true;
+            // Use batch processing for consolidated reply
+            const batchProcessingTask = processAllImagesAndReply(parsedTweet.imageUrls, parsedTweet, env).catch(error => {
+              console.error('Batch image processing failed:', error);
+            });
             
-            for (const imageUrl of parsedTweet.imageUrls) {
-              const imageProcessingTask = processImageAndStore(imageUrl, parsedTweet, env).catch(error => {
-                console.error('Image processing failed:', error);
-              });
-              
-              if (isFirstImage) {
-                // For testing: await the first image to see the complete flow in logs
-                console.log('DEBUG: Awaiting first image for testing...');
-                await imageProcessingTask;
-                isFirstImage = false;
-              } else {
-                // Handle additional images in background with proper waitUntil
-                backgroundTasks.push(imageProcessingTask);
-              }
-            }
+            // For webhook events, we can await the first batch to see full flow in logs
+            console.log('DEBUG: Awaiting batch processing for testing...');
+            await batchProcessingTask;
           } else {
             console.log('No images found in tweet, skipping AI detection');
             // TODO: In Task 6, we might want to reply with a message saying no images were found
@@ -1273,7 +1262,8 @@ async function replyToTweet(
   originalTweetId: string, 
   aiProbability: number, 
   finalResult: string, 
-  env: Env
+  env: Env,
+  customMessage?: string
 ): Promise<{ success: boolean; replyTweetId?: string; error?: string }> {
   try {
     console.log('Preparing to reply to tweet:', {
@@ -1282,8 +1272,8 @@ async function replyToTweet(
       finalResult
     });
     
-    // Compose reply message
-    const replyMessage = composeReplyMessage(aiProbability, finalResult);
+    // Use custom message if provided, otherwise compose standard message
+    const replyMessage = customMessage || composeReplyMessage(aiProbability, finalResult);
     
     console.log('Sending reply:', {
       message: replyMessage,
@@ -1356,93 +1346,163 @@ async function replyToTweet(
 }
 
 /**
- * Main processing function: Process image and handle tweet reply
+ * Process all images in a tweet and send one consolidated reply
  */
-async function processImageAndStore(imageUrl: string, tweetData: ParsedTweetData, env: Env): Promise<void> {
-  const detectionId = crypto.randomUUID();
-  const timestamp = Math.floor(Date.now() / 1000);
-  
+async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTweetData, env: Env): Promise<void> {
   try {
-    console.log('Starting image processing and storage:', { imageUrl, tweetId: tweetData.tweetId });
+    console.log(`Starting batch processing of ${imageUrls.length} images for tweet ${tweetData.tweetId}`);
     
-    // Run AI detection
-    const detectionResult = await processImageWithAI(imageUrl, env);
-    
-    let responseTweetId: string | undefined;
-    
-    // If AI detection was successful, reply to the original tweet
-    if (detectionResult.success) {
-      console.log('AI detection successful, attempting to reply to tweet...');
+    // Process all images concurrently
+    const imagePromises = imageUrls.map(async (imageUrl, index) => {
+      const detectionId = crypto.randomUUID();
+      const timestamp = Math.floor(Date.now() / 1000);
       
       try {
-        const replyResult = await replyToTweet(
-          tweetData.tweetId,
-          detectionResult.aiProbability,
-          detectionResult.finalResult,
-          env
-        );
+        console.log(`Processing image ${index + 1}/${imageUrls.length}: ${imageUrl}`);
+        const detectionResult = await processImageWithAI(imageUrl, env);
         
-        if (replyResult.success) {
-          responseTweetId = replyResult.replyTweetId;
-          console.log('Successfully replied to tweet:', {
-            originalTweetId: tweetData.tweetId,
-            replyTweetId: responseTweetId
-          });
-        } else {
-          console.error('Failed to reply to tweet:', replyResult.error);
-          // Continue with database storage even if reply fails
-        }
-      } catch (replyError) {
-        console.error('Error attempting to reply to tweet:', replyError);
-        // Continue with database storage even if reply fails
+        // Store result in database (without sending individual reply)
+        await insertDetection(env, {
+          id: detectionId,
+          tweetId: tweetData.tweetId,
+          timestamp,
+          imageUrl,
+          detectionScore: detectionResult.success ? detectionResult.aiProbability : undefined,
+          twitterHandle: tweetData.username,
+          responseTweetId: undefined, // Will be set after consolidated reply
+          processingTimeMs: detectionResult.processingTimeMs,
+          apiProvider: 'undetectable.ai'
+        });
+        
+        return {
+          index: index + 1, // 1-based for display
+          success: detectionResult.success,
+          aiProbability: detectionResult.aiProbability,
+          finalResult: detectionResult.finalResult,
+          error: detectionResult.error,
+          detectionId
+        };
+      } catch (error) {
+        console.error(`Failed to process image ${index + 1}:`, error);
+        
+        // Store error result
+        await insertDetection(env, {
+          id: detectionId,
+          tweetId: tweetData.tweetId,
+          timestamp,
+          imageUrl,
+          detectionScore: undefined,
+          twitterHandle: tweetData.username,
+          processingTimeMs: 0,
+          apiProvider: 'undetectable.ai'
+        });
+        
+        return {
+          index: index + 1,
+          success: false,
+          aiProbability: 0,
+          finalResult: 'Error',
+          error: error instanceof Error ? error.message : 'Processing failed',
+          detectionId
+        };
       }
-    } else {
-      console.log('AI detection failed, skipping tweet reply:', detectionResult.error);
-    }
-    
-    // Store result in database (including reply tweet ID if available)
-    const insertSuccess = await insertDetection(env, {
-      id: detectionId,
-      tweetId: tweetData.tweetId,
-      timestamp,
-      imageUrl,
-      detectionScore: detectionResult.success ? detectionResult.aiProbability : undefined,
-      twitterHandle: tweetData.username,
-      responseTweetId: responseTweetId,
-      processingTimeMs: detectionResult.processingTimeMs,
-      apiProvider: 'undetectable.ai'
     });
     
-    if (insertSuccess) {
-      console.log('Image processing completed and stored:', {
-        detectionId,
-        tweetId: tweetData.tweetId,
-        imageUrl,
-        aiProbability: detectionResult.aiProbability,
-        responseTweetId: responseTweetId,
-        success: detectionResult.success
-      });
-    } else {
-      console.error('Failed to store detection result in database');
+    // Wait for all images to be processed
+    const results = await Promise.all(imagePromises);
+    console.log(`Completed processing ${results.length} images, preparing consolidated reply`);
+    
+    // Create consolidated reply message
+    const replyMessage = composeMultiImageReplyMessage(results);
+    
+    // Send one consolidated reply
+    try {
+      const replyResult = await replyToTweet(
+        tweetData.tweetId,
+        0, // Not used in multi-image reply
+        '',  // Not used in multi-image reply
+        env,
+        replyMessage // Pass custom message
+      );
+      
+      if (replyResult.success) {
+        console.log('Successfully sent consolidated reply:', {
+          originalTweetId: tweetData.tweetId,
+          replyTweetId: replyResult.replyTweetId,
+          imageCount: results.length
+        });
+        
+        // Update database records with reply tweet ID
+        // Note: We could update all detection records with the reply ID if needed
+      } else {
+        console.error('Failed to send consolidated reply:', replyResult.error);
+      }
+    } catch (replyError) {
+      console.error('Error sending consolidated reply:', replyError);
     }
     
   } catch (error) {
-    console.error('Error in processImageAndStore:', error);
-    
-    // Still try to store the error result
-    await insertDetection(env, {
-      id: detectionId,
-      tweetId: tweetData.tweetId,
-      timestamp,
-      imageUrl,
-      detectionScore: undefined,
-      twitterHandle: tweetData.username,
-      processingTimeMs: 0,
-      apiProvider: 'undetectable.ai'
-    }).catch(dbError => {
-      console.error('Failed to store error result:', dbError);
-    });
+    console.error('Error in batch image processing:', error);
   }
+}
+
+/**
+ * Compose consolidated reply message for multiple images
+ */
+function composeMultiImageReplyMessage(results: Array<{
+  index: number;
+  success: boolean;
+  aiProbability: number;
+  finalResult: string;
+  error?: string;
+}>): string {
+  const ordinals = ['1st', '2nd', '3rd', '4th'];
+  
+  if (results.length === 1) {
+    // Single image - use original format
+    const result = results[0];
+    if (result.success) {
+      return composeReplyMessage(result.aiProbability, result.finalResult);
+    } else {
+      return `🧠 Unable to analyze the image. Please try again later. #AIDetection #TruthScan`;
+    }
+  }
+  
+  // Multiple images - use consolidated format
+  const successfulResults = results.filter(r => r.success);
+  const imageAnalyses: string[] = [];
+  
+  for (const result of results) {
+    const ordinal = ordinals[result.index - 1] || `${result.index}th`;
+    
+    if (result.success) {
+      const percentage = parseFloat(result.aiProbability.toFixed(2));
+      imageAnalyses.push(`${ordinal} image: ${percentage}%`);
+    } else {
+      imageAnalyses.push(`${ordinal} image: Error`);
+    }
+  }
+  
+  // Create the base message
+  let message = `🧠 AI Detection Results:\n${imageAnalyses.join('\n')}`;
+  
+  // Add overall assessment if we have successful results
+  if (successfulResults.length > 0) {
+    const avgProbability = successfulResults.reduce((sum, r) => sum + r.aiProbability, 0) / successfulResults.length;
+    
+    if (avgProbability >= 70) {
+      message += '\n\n🤖 Multiple images show high AI probability';
+    } else if (avgProbability >= 40) {
+      message += '\n\n🤔 Mixed results - some images may be AI-generated';
+    } else {
+      message += '\n\n👨‍🎨 Most images appear to be human-created';
+    }
+  }
+  
+  // Add hashtags
+  message += ' #AIDetection #TruthScan';
+  
+  return message;
 }
 
 /**
