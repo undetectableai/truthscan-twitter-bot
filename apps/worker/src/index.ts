@@ -1477,7 +1477,7 @@ function composeMultiImageReplyMessage(results: Array<{
     
     if (result.success) {
       const percentage = parseFloat(result.aiProbability.toFixed(2));
-      imageAnalyses.push(`${ordinal} image: ${percentage}%`);
+      imageAnalyses.push(`${ordinal} image: ${percentage}% AI`);
     } else {
       imageAnalyses.push(`${ordinal} image: Error`);
     }
