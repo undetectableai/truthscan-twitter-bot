@@ -329,4 +329,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Built with ❤️ using Cloudflare Workers, React, and TypeScript** 
+**Built with ❤️ using Cloudflare Workers, React, and TypeScript**
+
+---
+
+## 🚀 Deployment Status
+
+GitHub Actions deployment pipeline is now active! Any push to the main branch will automatically deploy to Cloudflare Workers. 

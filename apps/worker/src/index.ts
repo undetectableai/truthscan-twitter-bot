@@ -358,10 +358,36 @@ export default {
     });
 
     try {
-      // Run Twitter mention polling
-      await pollTwitterMentions(env, ctx);
+      // Run Twitter mention polling 4 times within this minute (every 15 seconds)
+      // This maximizes our Basic plan rate limit: 60 requests / 15 mins = 4 per minute
+      const pollingPromises: Promise<void>[] = [];
+      
+      for (let i = 0; i < 4; i++) {
+        const delayMs = i * 15000; // 0s, 15s, 30s, 45s
+        
+        const pollingPromise = new Promise<void>((resolve) => {
+          setTimeout(async () => {
+            try {
+              console.log(`Starting polling call ${i + 1}/4 (${delayMs/1000}s delay)`);
+              await pollTwitterMentions(env, ctx);
+              console.log(`Completed polling call ${i + 1}/4`);
+            } catch (error) {
+              console.error(`Error in polling call ${i + 1}/4:`, error);
+            }
+            resolve();
+          }, delayMs);
+        });
+        
+        pollingPromises.push(pollingPromise);
+      }
+      
+      // Use waitUntil to ensure all polling calls complete
+      ctx.waitUntil(Promise.all(pollingPromises));
+      
+      console.log('Scheduled 4 polling calls (every 15s) for this minute');
+      
     } catch (error) {
-      console.error('Error in scheduled Twitter polling:', error);
+      console.error('Error in scheduled Twitter polling setup:', error);
     }
   },
 };
