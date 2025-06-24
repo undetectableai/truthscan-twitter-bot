@@ -4501,7 +4501,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       <!-- Image Section -->
       <div class="image-container">
         <img 
-          src="/images/${pageId}" 
+          src="${currentDomain}/images/${pageId}" 
           alt="Image analyzed for AI-generated content detection"
           class="analyzed-image"
           loading="lazy"

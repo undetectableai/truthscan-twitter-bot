@@ -15,36 +15,29 @@ export default {
       return new Response("Not found", { status: 404 });
     }
 
+    const backendBase = "https://truthscan-twitter-bot.bjuhasz08.workers.dev";
     let targetUrl;
     
     if (detectionMatch) {
       const id = detectionMatch[1];
-      targetUrl = `https://truthscan-twitter-bot.bjuhasz08.workers.dev/d/${id}`;
+      targetUrl = `${backendBase}/d/${id}`;
     } else if (thumbnailMatch) {
       const id = thumbnailMatch[1];
-      targetUrl = `https://truthscan-twitter-bot.bjuhasz08.workers.dev/thumbnails/${id}`;
+      targetUrl = `${backendBase}/thumbnails/${id}`;
     } else if (imageMatch) {
       const id = imageMatch[1];
-      targetUrl = `https://truthscan-twitter-bot.bjuhasz08.workers.dev/images/${id}`;
+      targetUrl = `${backendBase}/images/${id}`;
     }
 
     const originResponse = await fetch(targetUrl);
     const contentType = originResponse.headers.get("Content-Type") || "";
 
     if (contentType.includes("text/html")) {
-      let body = await originResponse.text();
-
-      // Rewrite relative src/href URLs to absolute pointing to backend origin
-      body = body.replace(/(src|href)="\/([^"]+)"/g, (full, attr, path) => {
-        return `${attr}="https://truthscan-twitter-bot.bjuhasz08.workers.dev/${path}"`;
-      });
-
-      return new Response(body, {
-        status: originResponse.status,
-        headers: {
-          "Content-Type": contentType,
-        },
-      });
+      return new HTMLRewriter()
+        .on("meta[property='og:image']", new MetaTagRewriter(backendBase))
+        .on("meta[property='og:image:secure_url']", new MetaTagRewriter(backendBase))
+        .on("meta[name='twitter:image']", new MetaTagRewriter(backendBase))
+        .transform(originResponse);
     }
 
     // For non-HTML (e.g. images, JSON), stream the original response as-is
@@ -53,5 +46,18 @@ export default {
       status: originResponse.status,
       headers: originResponse.headers,
     });
-  },
-}; 
+  }
+}
+
+class MetaTagRewriter {
+  constructor(backendBase) {
+    this.backendBase = backendBase;
+  }
+
+  element(element) {
+    const content = element.getAttribute("content");
+    if (content && content.startsWith("/")) {
+      element.setAttribute("content", `${this.backendBase}${content}`);
+    }
+  }
+} 
