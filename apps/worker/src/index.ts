@@ -288,6 +288,10 @@ async function pollTwitterMentionsIncremental(
           text: tweet.text?.substring(0, 100) + '...'
         });
 
+        // Extract hashtags from tweet text using regex (Twitter API v2 search doesn't include hashtag entities)
+        const hashtagMatches = (tweet.text || '').match(/#\w+/g) || [];
+        const hashtags = hashtagMatches.map(tag => tag.substring(1)); // Remove # symbol
+        
         // Create parsed tweet data similar to webhook format
         const parsedTweet: ParsedTweetData = {
           tweetId,
@@ -295,7 +299,8 @@ async function pollTwitterMentionsIncremental(
           text: tweet.text || '',
           imageUrls,
           mentionedUsers: [botUsername],
-          isMentioningBot: true
+          isMentioningBot: true,
+          hashtags
         };
 
         // Process images if found
@@ -557,6 +562,10 @@ interface TwitterTweet {
       id_str: string;
     }>;
     media?: TwitterMedia[];
+    hashtags?: Array<{
+      text: string;
+      indices: [number, number];
+    }>;
   };
   extended_entities?: {
     media?: TwitterMedia[];
@@ -577,6 +586,7 @@ interface ParsedTweetData {
   imageUrls: string[];
   mentionedUsers: string[];
   isMentioningBot: boolean;
+  hashtags: string[];
 }
 
 /**
@@ -773,6 +783,9 @@ function parseTweetData(tweet: TwitterTweet, env: Env): ParsedTweetData {
   // Extract mentioned users
   const mentionedUsers = tweet.entities?.user_mentions?.map(mention => mention.screen_name) || [];
   
+  // Extract hashtags from entities
+  const hashtags = tweet.entities?.hashtags?.map(hashtag => hashtag.text) || [];
+  
   // Check if bot is mentioned by looking for our specific username
   const isMentioningBot = mentionedUsers.some(mentionedUser => 
     mentionedUser.toLowerCase() === BOT_USERNAME.toLowerCase()
@@ -787,6 +800,8 @@ function parseTweetData(tweet: TwitterTweet, env: Env): ParsedTweetData {
     imageCount: imageUrls.length,
     mentionCount: mentionedUsers.length,
     mentionedUsers,
+    hashtagCount: hashtags.length,
+    hashtags,
     isMentioningBot,
     botUsername: BOT_USERNAME,
     textPreview: text.substring(0, 50) + '...'
@@ -798,7 +813,8 @@ function parseTweetData(tweet: TwitterTweet, env: Env): ParsedTweetData {
     text,
     imageUrls,
     mentionedUsers,
-    isMentioningBot
+    isMentioningBot,
+    hashtags
   };
 }
 
@@ -1229,28 +1245,110 @@ async function generateTwitterOAuthSignature(
 }
 
 /**
+ * Extract meaningful keywords from tweet text for hashtag generation
+ */
+function extractKeywordsFromText(tweetText: string): string[] {
+  // Common words to filter out (stop words)
+  const stopWords = new Set([
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+    'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'will', 'would', 'could',
+    'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him',
+    'her', 'us', 'them', 'my', 'your', 'his', 'its', 'our', 'their', 'can', 'do', 'does', 'did',
+    'get', 'go', 'going', 'got', 'just', 'now', 'like', 'said', 'say', 'see', 'know', 'think',
+    'take', 'come', 'good', 'new', 'first', 'last', 'long', 'great', 'little', 'own', 'other',
+    'old', 'right', 'big', 'high', 'different', 'small', 'large', 'next', 'early', 'young',
+    'important', 'few', 'public', 'bad', 'same', 'able', 'rt', 'via'
+  ]);
+  
+  // Clean the text: remove URLs, mentions, and punctuation
+  const cleanText = tweetText
+    .replace(/https?:\/\/\S+/g, '') // Remove URLs
+    .replace(/@\w+/g, '') // Remove mentions
+    .replace(/[^\w\s]/g, ' ') // Remove punctuation
+    .toLowerCase()
+    .trim();
+  
+  // Split into words and filter
+  const words = cleanText
+    .split(/\s+/)
+    .filter(word => 
+      word.length >= 3 && // At least 3 characters
+      word.length <= 15 && // Not too long
+      !stopWords.has(word) && // Not a stop word
+      !/^\d+$/.test(word) && // Not just numbers
+      /^[a-z]+$/.test(word) // Only letters
+    );
+  
+  // Count word frequency
+  const wordCounts = new Map();
+  words.forEach(word => {
+    wordCounts.set(word, (wordCounts.get(word) || 0) + 1);
+  });
+  
+  // Sort by frequency and return top keywords
+  return Array.from(wordCounts.entries())
+    .sort((a, b) => b[1] - a[1]) // Sort by count (descending)
+    .slice(0, 3) // Take top 3
+    .map(([word]) => word);
+}
+
+/**
+ * Format hashtags for reply message - use up to 3 original hashtags, extract keywords, or fallback to defaults
+ */
+function formatHashtagsForReply(originalHashtags: string[], tweetText: string = ''): string {
+  // Filter out common bot/spam hashtags that we don't want to reuse
+  const filteredHashtags = originalHashtags.filter(tag => {
+    const lowerTag = tag.toLowerCase();
+    return !lowerTag.includes('bot') && 
+           !lowerTag.includes('spam') && 
+           !lowerTag.includes('follow') &&
+           !lowerTag.includes('like') &&
+           !lowerTag.includes('rt');
+  });
+  
+  if (filteredHashtags.length > 0) {
+    // Use up to 3 hashtags from the original tweet
+    const hashtagsToUse = filteredHashtags.slice(0, 3);
+    return hashtagsToUse.map(tag => `#${tag}`).join(' ');
+  } else if (tweetText.trim()) {
+    // Extract keywords from tweet text
+    const keywords = extractKeywordsFromText(tweetText);
+    if (keywords.length > 0) {
+      return keywords.map(keyword => `#${keyword}`).join(' ');
+    }
+  }
+  
+  // Fallback to our default hashtags
+  return '#AIDetection #TruthScan';
+}
+
+/**
  * Compose reply message based on AI detection score
  */
-function composeReplyMessage(aiProbability: number, _finalResult: string): string {
-  // The API returns confidence as a percentage (0-100), format to 2 decimal places
-  const percentage = parseFloat(aiProbability.toFixed(2));
+function composeReplyMessage(aiProbability: number, _finalResult: string, originalHashtags: string[] = [], tweetText: string = ''): string {
+  // The API returns confidence as a percentage (0-100), format to 2 digits with no decimal
+  const percentage = Math.round(aiProbability);
   
   // Create base message with probability
   let message = `🧠 This image looks ${percentage}% likely to be AI-generated.`;
   
-  // Add context based on confidence level
+  // Add context based on confidence level with new 6-tier system
   if (percentage >= 80) {
-    message += ' 🤖 High confidence: Likely AI';
+    message += ' 🤖 High confidence: Very likely AI generated.';
   } else if (percentage >= 60) {
-    message += ' 🤔 Moderate confidence';
+    message += ' 🦾 Medium confidence: Fairly likely AI generated.';
+  } else if (percentage >= 50) {
+    message += ' 🤔 Low confidence: More likely AI generated.';
   } else if (percentage >= 40) {
-    message += ' 📸 Leaning towards human-made';
+    message += ' 🤔 Low confidence: More likely a real image, not AI generated.';
+  } else if (percentage >= 20) {
+    message += ' 👩‍🎨 Medium confidence: Fairly likely a real image, not AI generated.';
   } else {
-    message += ' 👨‍🎨 Likely human-created';
+    message += ' 📸 High confidence: Very likely a real image, not AI generated.';
   }
   
-  // Add hashtags for discovery
-  message += ' #AIDetection #TruthScan';
+  // Add hashtags for discovery - use original hashtags if available
+  message += ' ' + formatHashtagsForReply(originalHashtags, tweetText);
   
   return message;
 }
@@ -1263,7 +1361,9 @@ async function replyToTweet(
   aiProbability: number, 
   finalResult: string, 
   env: Env,
-  customMessage?: string
+  customMessage?: string,
+  originalHashtags: string[] = [],
+  tweetText: string = ''
 ): Promise<{ success: boolean; replyTweetId?: string; error?: string }> {
   try {
     console.log('Preparing to reply to tweet:', {
@@ -1273,7 +1373,7 @@ async function replyToTweet(
     });
     
     // Use custom message if provided, otherwise compose standard message
-    const replyMessage = customMessage || composeReplyMessage(aiProbability, finalResult);
+    const replyMessage = customMessage || composeReplyMessage(aiProbability, finalResult, originalHashtags, tweetText);
     
     console.log('Sending reply:', {
       message: replyMessage,
@@ -1413,7 +1513,7 @@ async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTw
     console.log(`Completed processing ${results.length} images, preparing consolidated reply`);
     
     // Create consolidated reply message
-    const replyMessage = composeMultiImageReplyMessage(results);
+    const replyMessage = composeMultiImageReplyMessage(results, tweetData.hashtags, tweetData.text);
     
     // Send one consolidated reply
     try {
@@ -1455,16 +1555,16 @@ function composeMultiImageReplyMessage(results: Array<{
   aiProbability: number;
   finalResult: string;
   error?: string;
-}>): string {
+}>, originalHashtags: string[] = [], tweetText: string = ''): string {
   const ordinals = ['1st', '2nd', '3rd', '4th'];
   
   if (results.length === 1) {
     // Single image - use original format
     const result = results[0];
     if (result.success) {
-      return composeReplyMessage(result.aiProbability, result.finalResult);
+      return composeReplyMessage(result.aiProbability, result.finalResult, originalHashtags, tweetText);
     } else {
-      return `🧠 Unable to analyze the image. Please try again later. #AIDetection #TruthScan`;
+      return `🧠 Unable to analyze the image. Please try again later. ${formatHashtagsForReply(originalHashtags, tweetText)}`;
     }
   }
   
@@ -1476,7 +1576,7 @@ function composeMultiImageReplyMessage(results: Array<{
     const ordinal = ordinals[result.index - 1] || `${result.index}th`;
     
     if (result.success) {
-      const percentage = parseFloat(result.aiProbability.toFixed(2));
+      const percentage = Math.round(result.aiProbability);
       imageAnalyses.push(`${ordinal} image: ${percentage}% AI`);
     } else {
       imageAnalyses.push(`${ordinal} image: Error`);
@@ -1490,17 +1590,17 @@ function composeMultiImageReplyMessage(results: Array<{
   if (successfulResults.length > 0) {
     const avgProbability = successfulResults.reduce((sum, r) => sum + r.aiProbability, 0) / successfulResults.length;
     
-    if (avgProbability >= 70) {
+    if (avgProbability >= 75) {
       message += '\n\n🤖 Multiple images show high AI probability';
-    } else if (avgProbability >= 40) {
+    } else if (avgProbability >= 25) {
       message += '\n\n🤔 Mixed results - some images may be AI-generated';
     } else {
       message += '\n\n👨‍🎨 Most images appear to be human-created';
     }
   }
   
-  // Add hashtags
-  message += ' #AIDetection #TruthScan';
+  // Add hashtags - use original hashtags if available
+  message += ' ' + formatHashtagsForReply(originalHashtags, tweetText);
   
   return message;
 }
