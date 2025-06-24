@@ -994,6 +994,8 @@ interface DetectionResult {
   confidence: number;
   processingTimeMs: number;
   error?: string;
+  imageData?: ArrayBuffer;
+  imageContentType?: string;
 }
 
 /**
@@ -2327,6 +2329,8 @@ async function insertDetection(env: Env, data: {
   processingTimeMs?: number;
   apiProvider?: string;
   pageId?: string; // Optional: provide existing page_id or let it auto-generate
+  imageData?: ArrayBuffer;
+  imageContentType?: string;
 }): Promise<{ success: boolean; pageId?: string }> {
   try {
     // Generate unique page_id if not provided
@@ -3304,7 +3308,7 @@ async function handleMonitoringValidation(_request: Request, env: Env): Promise<
 async function queryPageViewCount(env: Env): Promise<number> {
   try {
     const result = await env.DB.prepare('SELECT COUNT(*) as count FROM page_views').first();
-    return result?.count || 0;
+    return (result?.count as number) || 0;
   } catch {
     return 0;
   }
