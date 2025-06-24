@@ -1304,9 +1304,12 @@ function extractKeywordsFromText(tweetText: string): string[] {
 }
 
 /**
- * Format hashtags for reply message - use up to 3 original hashtags, extract keywords, or fallback to defaults
+ * Format hashtags for reply message - always return exactly 3 hashtags by combining original, keywords, and defaults
  */
 function formatHashtagsForReply(originalHashtags: string[], tweetText: string = ''): string {
+  const defaultHashtags = ['AIDetection', 'TruthScan'];
+  let finalHashtags: string[] = [];
+  
   // Filter out common bot/spam hashtags that we don't want to reuse
   const filteredHashtags = originalHashtags.filter(tag => {
     const lowerTag = tag.toLowerCase();
@@ -1317,20 +1320,33 @@ function formatHashtagsForReply(originalHashtags: string[], tweetText: string = 
            !lowerTag.includes('rt');
   });
   
+  // Start with original hashtags (up to 3)
   if (filteredHashtags.length > 0) {
-    // Use up to 3 hashtags from the original tweet
-    const hashtagsToUse = filteredHashtags.slice(0, 3);
-    return hashtagsToUse.map(tag => `#${tag}`).join(' ');
-  } else if (tweetText.trim()) {
-    // Extract keywords from tweet text
-    const keywords = extractKeywordsFromText(tweetText);
-    if (keywords.length > 0) {
-      return keywords.map(keyword => `#${keyword}`).join(' ');
-    }
+    finalHashtags = filteredHashtags.slice(0, 3);
   }
   
-  // Fallback to our default hashtags
-  return '#AIDetection #TruthScan';
+  // If we need more hashtags and have tweet text, extract keywords
+  if (finalHashtags.length < 3 && tweetText.trim()) {
+    const keywords = extractKeywordsFromText(tweetText);
+    const needed = 3 - finalHashtags.length;
+    const keywordsToAdd = keywords.slice(0, needed);
+    finalHashtags = [...finalHashtags, ...keywordsToAdd];
+  }
+  
+  // If we still need more hashtags, add defaults
+  if (finalHashtags.length < 3) {
+    const needed = 3 - finalHashtags.length;
+    const defaultsToAdd = defaultHashtags.slice(0, needed);
+    finalHashtags = [...finalHashtags, ...defaultsToAdd];
+  }
+  
+  // Ensure we have at least 2 hashtags (fallback safety)
+  if (finalHashtags.length === 0) {
+    finalHashtags = defaultHashtags;
+  }
+  
+  // Format and return (always 2-3 hashtags)
+  return finalHashtags.map(tag => `#${tag}`).join(' ');
 }
 
 /**
