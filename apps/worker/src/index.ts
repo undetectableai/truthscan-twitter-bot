@@ -2332,9 +2332,10 @@ async function insertDetection(env: Env, data: {
   imageData?: ArrayBuffer;
   imageContentType?: string;
 }): Promise<{ success: boolean; pageId?: string }> {
+  // Generate unique page_id if not provided
+  let pageId = data.pageId;
+  
   try {
-    // Generate unique page_id if not provided
-    let pageId = data.pageId;
     if (!pageId) {
       const generatedPageId = await generateUniqueShortId(env);
       if (!generatedPageId) {
