@@ -241,6 +241,8 @@ async function pollTwitterMentionsIncremental(
         // Check if this mention is a reply to another tweet
         const isReply = tweet.referenced_tweets?.some(ref => ref.type === 'replied_to');
         let imageUrls: string[] = [];
+        let sourceText = tweet.text || ''; // Default to reply text
+        let sourceHashtags: string[] = [];
         
         if (isReply) {
           // Look for images in the original tweet that was replied to
@@ -261,9 +263,16 @@ async function pollTwitterMentionsIncremental(
                 .map(media => media.url!)
                 .filter(url => url);
                 
+              // IMPORTANT: Extract hashtags and text from the ORIGINAL tweet, not the reply
+              sourceText = originalTweet.text || '';
+              const hashtagMatches = sourceText.match(/#\w+/g) || [];
+              sourceHashtags = hashtagMatches.map(tag => tag.substring(1)); // Remove # symbol
+                
               console.log('Found NEW reply to tweet with images:', {
                 originalTweetId: referencedTweetId,
-                imageCount: imageUrls.length
+                imageCount: imageUrls.length,
+                originalText: sourceText.substring(0, 100) + '...',
+                originalHashtags: sourceHashtags
               });
             }
           }
@@ -278,6 +287,10 @@ async function pollTwitterMentionsIncremental(
             .filter(media => media.type === 'photo')
             .map(media => media.url!)
             .filter(url => url);
+            
+          // For direct mentions, extract hashtags from the mention tweet
+          const hashtagMatches = sourceText.match(/#\w+/g) || [];
+          sourceHashtags = hashtagMatches.map(tag => tag.substring(1)); // Remove # symbol
         }
 
         console.log('Found NEW mention:', {
@@ -285,22 +298,20 @@ async function pollTwitterMentionsIncremental(
           author: authorUsername,
           isReply,
           imageCount: imageUrls.length,
-          text: tweet.text?.substring(0, 100) + '...'
+          replyText: tweet.text?.substring(0, 100) + '...',
+          sourceText: sourceText.substring(0, 100) + '...',
+          sourceHashtags
         });
-
-        // Extract hashtags from tweet text using regex (Twitter API v2 search doesn't include hashtag entities)
-        const hashtagMatches = (tweet.text || '').match(/#\w+/g) || [];
-        const hashtags = hashtagMatches.map(tag => tag.substring(1)); // Remove # symbol
         
-        // Create parsed tweet data similar to webhook format
+        // Create parsed tweet data using the correct source (original tweet for replies, mention tweet for direct mentions)
         const parsedTweet: ParsedTweetData = {
           tweetId,
           username: authorUsername,
-          text: tweet.text || '',
+          text: sourceText, // Use original tweet text for replies, mention tweet text for direct mentions
           imageUrls,
           mentionedUsers: [botUsername],
           isMentioningBot: true,
-          hashtags
+          hashtags: sourceHashtags // Use hashtags from the correct source tweet
         };
 
         // Process images if found
