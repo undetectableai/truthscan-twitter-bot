@@ -2348,10 +2348,9 @@ async function insertDetection(env: Env, data: {
     
     const stmt = env.DB.prepare(`
       INSERT INTO detections (
-        id, tweet_id, timestamp, image_url, image_data, image_content_type, 
-        image_size, detection_score, twitter_handle, response_tweet_id, 
-        processing_time_ms, api_provider, page_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, tweet_id, timestamp, image_url, detection_score, twitter_handle, 
+        response_tweet_id, processing_time_ms, api_provider, page_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
     const result = await stmt.bind(
@@ -2359,9 +2358,6 @@ async function insertDetection(env: Env, data: {
       data.tweetId,
       data.timestamp,
       data.imageUrl,
-      data.imageData || null,
-      data.imageContentType || 'image/jpeg',
-      data.imageData ? data.imageData.byteLength : null,
       data.detectionScore || null,
       data.twitterHandle,
       data.responseTweetId || null,
@@ -2373,7 +2369,6 @@ async function insertDetection(env: Env, data: {
     console.log('Detection inserted:', { 
       id: data.id, 
       pageId: pageId || 'none',
-      imageSize: data.imageData ? data.imageData.byteLength : 0,
       success: result.success 
     });
     
