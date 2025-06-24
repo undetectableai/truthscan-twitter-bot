@@ -2378,7 +2378,8 @@ async function insertDetection(env: Env, data: {
     };
   } catch (error) {
     console.error('Failed to insert detection:', error);
-    return { success: false };
+    // Still return the pageId even if database insert fails so the URL can be included in tweets
+    return { success: false, pageId: pageId || undefined };
   }
 }
 
@@ -3859,7 +3860,7 @@ async function handleDetectionPage(request: Request, env: Env): Promise<Response
     });
     
     // Generate HTML page for detection results
-    const htmlContent = generateDetectionPageHTML(detectionData, sanitizedPageId);
+    const htmlContent = generateDetectionPageHTML(detectionData, sanitizedPageId, request);
     
     // Create response headers with appropriate caching
     const responseHeaders = new Headers({
@@ -3916,7 +3917,7 @@ async function handleDetectionPage(request: Request, env: Env): Promise<Response
 /**
  * Generate HTML template for detection results page
  */
-function generateDetectionPageHTML(data: any, pageId: string): string {
+function generateDetectionPageHTML(data: any, pageId: string, request: Request): string {
   // Convert detection score to percentage and determine color
   // Handle mixed formats: decimal (0-1) vs percentage (0-100)
   let scorePercentage = 0;
@@ -3941,16 +3942,19 @@ function generateDetectionPageHTML(data: any, pageId: string): string {
   // Build Twitter URL
   const twitterUrl = `https://twitter.com/${data.twitter_handle}/status/${data.tweet_id}`;
   
+  // Dynamic domain detection from current request
+  const currentDomain = new URL(request.url).origin;
+  
   // Current page URL for sharing
-  const pageUrl = `https://truthscan.com/d/${pageId}`;
+  const pageUrl = `${currentDomain}/d/${pageId}`;
   
   // Generate dynamic, compelling meta descriptions under character limits
   const shortDescription = `${scorePercentage}% ${scoreLabel} - AI detection analysis from TruthScan`;
   const longDescription = `AI detection analysis: ${scorePercentage}% probability of AI generation. From @${data.twitter_handle} tweet. Analyzed ${timeAgo}.`;
   
   // Image URLs with fallback
-  const ogImageUrl = `https://truthscan.com/thumbnails/${pageId}`;
-  const fallbackImageUrl = `https://truthscan.com/images/${pageId}`;
+  const ogImageUrl = `${currentDomain}/thumbnails/${pageId}`;
+  const fallbackImageUrl = `${currentDomain}/images/${pageId}`;
   
   // Accessibility descriptions for images
   const imageAltText = `AI detection result showing ${scorePercentage}% probability of artificial intelligence generation`;
