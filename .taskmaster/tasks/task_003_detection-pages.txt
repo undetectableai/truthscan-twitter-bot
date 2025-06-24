@@ -1,0 +1,31 @@
+# Task ID: 3
+# Title: Configure Cloudflare Worker Route for Detection Pages
+# Status: pending
+# Dependencies: 2
+# Priority: high
+# Description: Set up Cloudflare Worker routing for /detect/:id URLs.
+# Details:
+Configure a route in the Cloudflare Dashboard for /detect/:id that maps to a Worker. Use Cloudflare Workers' routing capabilities to handle GET requests only[1][2][5]. Example route: /detect/*. Ensure the Worker is not proxied to the dashboard app.
+
+# Test Strategy:
+Test route configuration by accessing /detect/test-id and verifying the Worker responds. Check logs for correct routing.
+
+# Subtasks:
+## 1. Configure the Route in the Cloudflare Dashboard [pending]
+### Dependencies: None
+### Description: Set up the desired route for your Worker in the Cloudflare Dashboard by specifying the domain/subdomain and the route pattern, and associating it with the correct Worker.
+### Details:
+Log in to the Cloudflare dashboard, select your account and domain, navigate to Workers & Pages > Overview, select your Worker, then go to Settings > Domains & Routes > Add > Route. Enter the route pattern and associate it with your Worker, then save the configuration.[1][5]
+
+## 2. Update Worker Code to Handle the Route [pending]
+### Dependencies: 3.1
+### Description: Modify your Worker script to properly handle requests that match the configured route, ensuring it processes and responds as intended.
+### Details:
+Edit your Worker code to include logic for handling requests on the specified route. Deploy the updated Worker so it is active for incoming requests matching the route.
+
+## 3. Verify Routing and Logging [pending]
+### Dependencies: 3.2
+### Description: Test the configured route to ensure the Worker is invoked as expected and review logs to confirm correct routing and execution.
+### Details:
+Access the route in your browser or via a tool like curl to trigger the Worker. Use the Cloudflare dashboard's Worker admin page to view logs and statistics, confirming that the Worker is executing on the intended route and logging as expected.[5]
+

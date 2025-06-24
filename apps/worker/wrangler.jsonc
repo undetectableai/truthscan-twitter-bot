@@ -21,6 +21,10 @@
       "database_id": "d7d85fbc-0c60-4c6b-a9e3-9f35f7582c6d"
     }
   ],
+
+  // "images": {
+  //   "binding": "IMAGES_API"
+  // },
   "env": {
     "staging": {
       "name": "truthscan-twitter-bot-staging",
@@ -35,6 +39,9 @@
           "database_id": "d7d85fbc-0c60-4c6b-a9e3-9f35f7582c6d"
         }
       ]
+      // "images": {
+      //   "binding": "IMAGES_API"
+      // }
     },
     "production": {
       "name": "truthscan-twitter-bot-prod",
@@ -49,6 +56,9 @@
           "database_id": "d7d85fbc-0c60-4c6b-a9e3-9f35f7582c6d"
         }
       ]
+      // "images": {
+      //   "binding": "IMAGES_API"
+      // }
     }
   }
   

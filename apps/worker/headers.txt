@@ -1,0 +1,14 @@
+HTTP/1.1 404 Not Found
+Transfer-Encoding: chunked
+Content-Type: text/html; charset=utf-8
+Access-Control-Allow-Origin: *
+Cache-Control: public, max-age=3600, s-maxage=3600
+ETag: "x3u1gbo70"
+Vary: Accept-Encoding
+Access-Control-Allow-Headers: Content-Type
+Access-Control-Allow-Methods: GET, OPTIONS
+Referrer-Policy: strict-origin-when-cross-origin
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-XSS-Protection: 1; mode=block
+

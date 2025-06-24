@@ -70,6 +70,27 @@ wrangler d1 create truthscan-db-prod
 wrangler d1 execute truthscan-db-prod --file=./schema.sql
 ```
 
+#### Apply Database Migrations
+
+After setting up the initial schema, apply any migrations:
+
+```bash
+# Apply to development
+wrangler d1 execute truthscan-db --file=./migrations/001_add_webhook_logs.sql
+wrangler d1 execute truthscan-db --file=./migrations/002_add_page_id.sql  
+wrangler d1 execute truthscan-db --file=./migrations/003_add_monitoring_tables.sql
+
+# Apply to staging
+wrangler d1 execute truthscan-db-staging --file=./migrations/001_add_webhook_logs.sql
+wrangler d1 execute truthscan-db-staging --file=./migrations/002_add_page_id.sql
+wrangler d1 execute truthscan-db-staging --file=./migrations/003_add_monitoring_tables.sql
+
+# Apply to production
+wrangler d1 execute truthscan-db-prod --file=./migrations/001_add_webhook_logs.sql
+wrangler d1 execute truthscan-db-prod --file=./migrations/002_add_page_id.sql
+wrangler d1 execute truthscan-db-prod --file=./migrations/003_add_monitoring_tables.sql
+```
+
 ### 4. Secrets Configuration
 
 #### For Development

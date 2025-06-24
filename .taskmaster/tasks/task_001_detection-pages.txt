@@ -1,0 +1,48 @@
+# Task ID: 1
+# Title: Update Database Schema for Detection Pages
+# Status: pending
+# Dependencies: None
+# Priority: high
+# Description: Extend the database schema to support detection pages and their metadata.
+# Details:
+Implement the new detection_pages table and add page_id to the detections table as specified in the PRD. Use D1 SQLite for Cloudflare Workers. Example SQL:
+
+CREATE TABLE detection_pages (
+    id TEXT PRIMARY KEY,
+    detection_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    view_count INTEGER DEFAULT 0,
+    last_viewed INTEGER,
+    FOREIGN KEY (detection_id) REFERENCES detections(id)
+);
+
+ALTER TABLE detections ADD COLUMN page_id TEXT;
+
+# Test Strategy:
+Verify schema changes by inserting test data and querying both tables. Check foreign key constraints and ensure page_id is correctly linked.
+
+# Subtasks:
+## 1. Design New Detection Pages Table [pending]
+### Dependencies: None
+### Description: Create a detailed design for the new detection_pages table, including all necessary columns and data types.
+### Details:
+Ensure the table structure aligns with the project's requirements and existing schema.
+
+## 2. Update Detections Table [pending]
+### Dependencies: 1.1
+### Description: Modify the existing detections table to accommodate changes related to the new detection_pages table.
+### Details:
+This may involve adding foreign keys or modifying existing columns to maintain data consistency.
+
+## 3. Write Migration Scripts [pending]
+### Dependencies: 1.1, 1.2
+### Description: Develop SQL scripts to migrate data from the old schema to the new schema, ensuring data integrity and consistency.
+### Details:
+Use tools like Liquibase or similar migration tools to manage and automate the schema changes.
+
+## 4. Verify Schema Changes with Test Data [pending]
+### Dependencies: 1.3
+### Description: Test the updated schema using sample data to ensure all changes are correct and functional.
+### Details:
+Conduct unit and integration tests to validate the migration process and identify any issues.
+

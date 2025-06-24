@@ -1,0 +1,53 @@
+# Task ID: 5
+# Title: Implement Page Generation Logic in Cloudflare Worker
+# Status: pending
+# Dependencies: 3, 4
+# Priority: high
+# Description: Write Worker logic to fetch detection data and render the HTML template.
+# Details:
+In the Worker, parse the URL to extract the ID, query D1 for detection and page data, and render the HTML template with variable substitution. Use fetch() for any external resources. Example pseudo-code:
+
+const id = new URL(request.url).pathname.split('/')[2];
+const pageData = await env.DB.prepare('SELECT ... FROM detection_pages WHERE id = ?').bind(id).first();
+const html = template.replace('{{id}}', id).replace('{{score}}', pageData.score);
+
+# Test Strategy:
+Test with valid and invalid IDs. Verify correct data rendering and error handling.
+
+# Subtasks:
+## 1. Parse and Validate the URL [pending]
+### Dependencies: None
+### Description: Implement logic to extract, parse, and validate the input URL, ensuring it is well-formed and meets expected criteria before proceeding.
+### Details:
+This includes checking for proper URL format, allowed protocols, and rejecting malformed or potentially malicious URLs.
+
+## 2. Query Detection and Page Data [pending]
+### Dependencies: 5.1
+### Description: Fetch detection results and page metadata based on the validated URL, handling any data retrieval or transformation required.
+### Details:
+This may involve calling internal or external APIs, parsing responses, and preparing data for template integration.
+
+## 3. Integrate with HTML Template [pending]
+### Dependencies: 5.2
+### Description: Render the fetched detection and page data into the appropriate HTML template for user presentation.
+### Details:
+Ensure the template displays all relevant information and handles missing or partial data gracefully.
+
+## 4. Handle External Resource Fetching [pending]
+### Dependencies: 5.2
+### Description: Implement logic to fetch any required external resources (e.g., images, scripts, styles) referenced by the page or detection data.
+### Details:
+Ensure resources are fetched securely, with appropriate timeouts and error handling for unavailable or slow resources.
+
+## 5. Implement Robust Error Handling [pending]
+### Dependencies: 5.1, 5.2, 5.3, 5.4
+### Description: Add comprehensive error handling throughout the workflow, including logging, user-friendly error messages, and fallback behaviors.
+### Details:
+Follow best practices such as clear error messages, structured error responses, and avoiding sensitive data leaks in errors.
+
+## 6. Test with Various Scenarios [pending]
+### Dependencies: 5.1, 5.2, 5.3, 5.4, 5.5
+### Description: Develop and execute tests covering a range of scenarios, including valid, invalid, and edge-case URLs, as well as simulated failures in data fetching and resource loading.
+### Details:
+Ensure the system behaves correctly and robustly under all tested conditions, and refine error handling based on test results.
+

@@ -103,12 +103,13 @@ The schema includes:
 - `id` (TEXT, PRIMARY KEY) - Unique detection ID
 - `tweet_id` (TEXT, NOT NULL) - Twitter tweet ID
 - `timestamp` (INTEGER, NOT NULL) - Unix timestamp
-- `image_url` (TEXT, NOT NULL) - URL of analyzed image
+- `image_url` (TEXT, NOT NULL) - URL of analyzed image (served via Twitter CDN proxy)
 - `detection_score` (REAL) - AI confidence score (0.0-1.0)
 - `twitter_handle` (TEXT, NOT NULL) - User's Twitter handle
 - `response_tweet_id` (TEXT) - Bot's response tweet ID
 - `processing_time_ms` (INTEGER) - Processing duration
 - `api_provider` (TEXT) - AI detection service used
+- `page_id` (TEXT) - Short URL identifier for detection pages
 
 ### `webhook_logs` table:
 - For debugging webhook payloads and tracking errors

@@ -1,0 +1,39 @@
+# Task ID: 8
+# Title: Add Page View Counter and Analytics
+# Status: pending
+# Dependencies: 5
+# Priority: medium
+# Description: Implement a simple page view counter and basic analytics.
+# Details:
+Increment the view_count in detection_pages on each page load. Track top 10 most viewed pages. Store last_viewed timestamp. Example:
+
+await env.DB.prepare('UPDATE detection_pages SET view_count = view_count + 1, last_viewed = ? WHERE id = ?').bind(Date.now(), id).run();
+
+# Test Strategy:
+Test view counter increments and top pages tracking. Verify no user tracking or cookies are used.
+
+# Subtasks:
+## 1. Implement Incrementing View Counters [pending]
+### Dependencies: None
+### Description: Develop logic to increment view counters for each page or resource when accessed.
+### Details:
+Ensure atomic updates to avoid race conditions and data loss. Integrate with existing analytics or database systems.
+
+## 2. Track Last Viewed Timestamps [pending]
+### Dependencies: 8.1
+### Description: Add functionality to record the timestamp of the last view for each page or resource.
+### Details:
+Update the database with the latest timestamp whenever a page is viewed. Consider user session context if needed.
+
+## 3. Query Top Viewed Pages [pending]
+### Dependencies: 8.1
+### Description: Implement queries to retrieve and display the most viewed pages or resources.
+### Details:
+Design efficient database queries to aggregate and sort view counts. Support filtering and pagination if required.
+
+## 4. Validate Analytics Logic [pending]
+### Dependencies: 8.1, 8.2, 8.3
+### Description: Test and validate the accuracy and reliability of analytics counters and timestamps.
+### Details:
+Perform automated and manual tests to ensure data integrity, correct incrementing, and accurate timestamp recording.
+

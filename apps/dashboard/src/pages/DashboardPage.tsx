@@ -2,6 +2,7 @@ import React from 'react';
 import { format } from 'date-fns';
 import AIDetectionPieChart from '../components/AIDetectionPieChart';
 import DetectionTimelineChart from '../components/DetectionTimelineChart';
+import MonitoringCard from '../components/MonitoringCard';
 
 interface Detection {
   id: string;
@@ -19,6 +20,82 @@ const DashboardPage: React.FC = () => {
   const [detections, setDetections] = React.useState<Detection[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [monitoringData, setMonitoringData] = React.useState<any>(null);
+  const [monitoringLoading, setMonitoringLoading] = React.useState(true);
+  const [monitoringError, setMonitoringError] = React.useState<string | null>(null);
+
+  // Fetch monitoring data
+  const fetchMonitoringData = async () => {
+    try {
+      setMonitoringLoading(true);
+      setMonitoringError(null);
+      
+      // Try different possible worker URLs
+      const workerUrls = [
+        'http://localhost:8787',   // Standard Wrangler dev port
+        'http://localhost:57550',  // Alternative port
+        'http://localhost:59049',  // Current dev port from logs
+        'https://truthscan-twitter-bot.your-username.workers.dev', // Production (if deployed)
+      ];
+      
+      // Prepare authentication headers if credentials are available
+      const authHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      
+      // Check for Basic Auth credentials in environment variables
+      const basicAuthUsername = import.meta.env.VITE_BASIC_AUTH_USERNAME;
+      const basicAuthPassword = import.meta.env.VITE_BASIC_AUTH_PASSWORD;
+      
+      if (basicAuthUsername && basicAuthPassword) {
+        const credentials = btoa(`${basicAuthUsername}:${basicAuthPassword}`);
+        authHeaders['Authorization'] = `Basic ${credentials}`;
+      }
+      
+      let monitoringApiData = null;
+      let successful = false;
+      
+      for (const baseUrl of workerUrls) {
+        if (successful) break;
+        
+        try {
+          console.log(`Trying to fetch monitoring data from: ${baseUrl}/api/monitoring/dashboard`);
+          const response = await fetch(`${baseUrl}/api/monitoring/dashboard`, {
+            method: 'GET',
+            headers: authHeaders,
+          });
+          
+          if (response.ok) {
+            monitoringApiData = await response.json();
+            console.log('Successfully fetched monitoring data from:', baseUrl);
+            successful = true;
+            break;
+          } else {
+            console.log(`Failed to fetch monitoring data from ${baseUrl}:`, response.status, response.statusText);
+          }
+        } catch (err) {
+          console.log(`Connection failed to ${baseUrl} for monitoring:`, err);
+        }
+      }
+      
+      if (!successful || !monitoringApiData) {
+        setMonitoringError('Unable to connect to the monitoring API.');
+        return;
+      }
+      
+      if (monitoringApiData.success) {
+        setMonitoringData(monitoringApiData);
+      } else {
+        setMonitoringError('Invalid monitoring data format received from API');
+      }
+      
+    } catch (err) {
+      console.error('Monitoring fetch error:', err);
+      setMonitoringError('Failed to fetch monitoring data');
+    } finally {
+      setMonitoringLoading(false);
+    }
+  };
 
   React.useEffect(() => {
     const fetchDetections = async () => {
@@ -106,9 +183,13 @@ const DashboardPage: React.FC = () => {
     };
 
     fetchDetections();
+    fetchMonitoringData();
 
     // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchDetections, 30000);
+    const interval = setInterval(() => {
+      fetchDetections();
+      fetchMonitoringData();
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -272,6 +353,13 @@ const DashboardPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Monitoring Section */}
+      <MonitoringCard 
+        data={monitoringData} 
+        loading={monitoringLoading} 
+        error={monitoringError} 
+      />
 
       {/* Analytics Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

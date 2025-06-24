@@ -1,0 +1,52 @@
+# Task ID: 2
+# Title: Implement Secure Short URL Generation
+# Status: pending
+# Dependencies: 1
+# Priority: high
+# Description: Generate unique, secure, case-insensitive Base36 short URLs for detection results.
+# Details:
+Use a secure random generator (e.g., crypto.getRandomValues in Cloudflare Workers) to create 5-6 character Base36 strings. Filter out offensive words and confusing patterns (0/O, 1/l/I). Store the generated ID in the detection_pages table. Example pseudo-code:
+
+function generateShortId() {
+  const chars = '0123456789abcdefghijklmnopqrstuvwxyz'.replace(/[0o1li]/g, '');
+  let result = '';
+  for (let i = 0; i < 6; i++) {
+    result += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return result;
+}
+
+# Test Strategy:
+Test generation of 100,000+ unique IDs, check for collisions, and validate filtering of unwanted patterns.
+
+# Subtasks:
+## 1. Design the Short ID Algorithm [pending]
+### Dependencies: None
+### Description: Develop an algorithm for generating short, unique, and readable IDs. Consider approaches such as hashing (e.g., SHA-256, truncated hashes), base encoding, or distributed ID generators like Snowflake. Ensure the design balances uniqueness, brevity, and performance.
+### Details:
+Analyze trade-offs between different algorithms (e.g., hash-based, time-based, random). Define the character set and length for the short IDs. Specify how the algorithm will avoid predictability and ensure scalability.
+
+## 2. Implement Secure Random Generation [pending]
+### Dependencies: 2.1
+### Description: Integrate a cryptographically secure random number generator into the ID creation process to ensure unpredictability and resistance to guessing attacks.
+### Details:
+Use secure random libraries or system APIs to generate entropy for the IDs. Validate that the randomness source meets security requirements and is suitable for production use.
+
+## 3. Filter Out Unwanted Patterns [pending]
+### Dependencies: 2.2
+### Description: Develop a filtering mechanism to exclude IDs containing offensive, confusing, or reserved patterns. Ensure the filter is efficient and comprehensive.
+### Details:
+Compile a list of patterns to avoid (e.g., offensive words, ambiguous characters). Implement pattern matching and rejection logic within the ID generation pipeline.
+
+## 4. Store and Validate Uniqueness in the Database [pending]
+### Dependencies: 2.3
+### Description: Design and implement a system for storing generated IDs and validating their uniqueness before finalizing assignment.
+### Details:
+Choose an appropriate database schema and indexing strategy for efficient uniqueness checks. Implement atomic operations or transactions to prevent race conditions and ensure no duplicate IDs are stored.
+
+## 5. Collision and Pattern Testing [pending]
+### Dependencies: 2.4
+### Description: Test the system for ID collisions and verify that unwanted patterns are effectively filtered out. Analyze the probability of collisions and the effectiveness of the filtering logic.
+### Details:
+Simulate high-volume ID generation to measure collision rates. Create test cases for known unwanted patterns. Document results and refine the algorithm or filters as needed.
+

@@ -1,109 +1,109 @@
 {
 	"meta": {
-		"generatedAt": "2025-06-23T01:22:52.501Z",
+		"generatedAt": "2025-06-24T08:01:35.458Z",
 		"tasksAnalyzed": 12,
 		"totalTasks": 12,
 		"analysisCount": 12,
-		"thresholdScore": 6,
+		"thresholdScore": 5,
 		"projectName": "Taskmaster",
 		"usedResearch": true
 	},
 	"complexityAnalysis": [
 		{
 			"taskId": 1,
-			"taskTitle": "Project Setup: Monorepo, TypeScript, and Base Configurations",
-			"complexityScore": 7,
-			"recommendedSubtasks": 6,
-			"expansionPrompt": "Break down the project setup into subtasks for initializing the pnpm monorepo, configuring workspace files, setting up TypeScript for both worker and dashboard, installing dependencies, creating configuration files, and consulting Cloudflare best practices.",
-			"reasoning": "Setting up a monorepo with pnpm, TypeScript, and base configurations for both backend (Cloudflare Worker) and frontend (React dashboard) involves multiple steps, cross-package coordination, and careful configuration management. It requires knowledge of monorepo tooling, TypeScript setup, and initial project structure, making it moderately complex[1][2][3][4][5]."
+			"taskTitle": "Update Database Schema for Detection Pages",
+			"complexityScore": 4,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down the schema update into: (1) designing the new detection_pages table, (2) updating the detections table, (3) writing migration scripts, and (4) verifying schema changes with test data.",
+			"reasoning": "This task involves straightforward schema changes and basic SQL operations, with moderate complexity due to the need for migration and foreign key management. Testing and validation add some overhead, but the logic is standard for database updates."
 		},
 		{
 			"taskId": 2,
-			"taskTitle": "Cloudflare Worker: Twitter Webhook Endpoint & CRC Validation",
-			"complexityScore": 8,
+			"taskTitle": "Implement Secure Short URL Generation",
+			"complexityScore": 6,
 			"recommendedSubtasks": 5,
-			"expansionPrompt": "Expand this task into subtasks for defining the webhook endpoint, implementing CRC validation logic, handling secrets, logging POST payloads, and testing with Twitter's CRC challenge.",
-			"reasoning": "Implementing a secure webhook endpoint with Twitter's CRC validation requires understanding of the Twitter API, cryptographic operations using the Web Crypto API, secure secret handling, and robust endpoint design. The need for both GET and POST handling and integration with Cloudflare Workers adds to the complexity."
+			"expansionPrompt": "Expand into: (1) designing the short ID algorithm, (2) implementing secure random generation, (3) filtering out unwanted patterns, (4) storing and validating uniqueness in the database, and (5) collision and pattern testing.",
+			"reasoning": "Generating secure, unique, and filtered short URLs requires careful algorithm design, randomness, collision handling, and integration with the database. The need to filter offensive/confusing patterns and ensure uniqueness increases complexity."
 		},
 		{
 			"taskId": 3,
-			"taskTitle": "Cloudflare Worker: Tweet Parsing and Image URL Extraction",
-			"complexityScore": 6,
-			"recommendedSubtasks": 4,
-			"expansionPrompt": "Break this task into subtasks for parsing webhook payloads, identifying relevant tweet events, extracting image URLs, and handling edge cases (no images, multiple images).",
-			"reasoning": "Parsing JSON payloads and extracting specific data from potentially complex Twitter event structures is moderately complex, especially when handling various edge cases and ensuring robust extraction logic."
+			"taskTitle": "Configure Cloudflare Worker Route for Detection Pages",
+			"complexityScore": 3,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Divide into: (1) configuring the route in the Cloudflare Dashboard, (2) updating Worker code to handle the route, and (3) verifying routing and logging.",
+			"reasoning": "This is a configuration-focused task with minimal logic, mainly involving dashboard setup and basic route handling. Testing is straightforward."
 		},
 		{
 			"taskId": 4,
-			"taskTitle": "Data Storage: Cloudflare D1 Database Schema and Setup",
-			"complexityScore": 7,
-			"recommendedSubtasks": 5,
-			"expansionPrompt": "Expand into subtasks for defining the SQL schema, creating the D1 database, configuring wrangler.toml bindings, applying the schema, and verifying connectivity from the worker.",
-			"reasoning": "Designing a database schema, setting up Cloudflare D1, configuring bindings, and ensuring proper integration with the worker involves several steps and requires understanding of both SQL and Cloudflare's deployment model."
+			"taskTitle": "Develop HTML Template for Detection Results Page",
+			"complexityScore": 5,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down into: (1) designing the layout and structure, (2) implementing responsive CSS, (3) adding placeholders for dynamic data, and (4) accessibility and browser testing.",
+			"reasoning": "Requires both design and implementation skills, with attention to responsiveness and accessibility. The logic is not complex, but thorough testing is needed for quality."
 		},
 		{
 			"taskId": 5,
-			"taskTitle": "Cloudflare Worker: AI Detection API Call (Mock) & D1 Storage",
+			"taskTitle": "Implement Page Generation Logic in Cloudflare Worker",
 			"complexityScore": 7,
-			"recommendedSubtasks": 5,
-			"expansionPrompt": "Break down into subtasks for implementing the mock AI detection function, integrating it with image extraction, storing results in D1, handling secrets, and verifying data persistence.",
-			"reasoning": "This task involves asynchronous API integration (even if mocked), data processing, and reliable storage in D1, requiring careful error handling and coordination between components."
+			"recommendedSubtasks": 6,
+			"expansionPrompt": "Expand into: (1) parsing and validating the URL, (2) querying detection and page data, (3) integrating with the HTML template, (4) handling external resource fetching, (5) error handling, and (6) testing with various scenarios.",
+			"reasoning": "This task involves backend logic, data fetching, template rendering, and error handling. It requires careful coordination between components and robust testing, making it one of the more complex tasks."
 		},
 		{
 			"taskId": 6,
-			"taskTitle": "Cloudflare Worker: Tweet Reply Logic",
-			"complexityScore": 7,
-			"recommendedSubtasks": 5,
-			"expansionPrompt": "Expand into subtasks for installing Twitter API client, initializing with secrets, composing reply messages, posting replies, and handling API errors.",
-			"reasoning": "Replying to tweets programmatically involves secure API client setup, message formatting, error handling, and integration with previous detection logic, making it moderately complex."
+			"taskTitle": "Integrate Open Graph and SEO Meta Tags",
+			"complexityScore": 5,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Divide into: (1) generating dynamic Open Graph tags, (2) adding Twitter and SEO meta tags, (3) implementing JSON-LD structured data, and (4) validating with social and search tools.",
+			"reasoning": "Meta tag integration is mostly templating and data mapping, but requires attention to detail and validation with external tools. Complexity is moderate."
 		},
 		{
 			"taskId": 7,
-			"taskTitle": "Frontend: Dashboard Basic Setup (React, Vite, Tailwind, Routing)",
-			"complexityScore": 5,
-			"recommendedSubtasks": 4,
-			"expansionPrompt": "Break down into subtasks for initializing the dashboard project, configuring TailwindCSS, setting up routing, and creating basic layout components.",
-			"reasoning": "Setting up a modern React dashboard with Vite and TailwindCSS is a standard frontend task, but requires attention to configuration and project structure."
+			"taskTitle": "Implement Image Handling and Thumbnail Strategy",
+			"complexityScore": 6,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Break down into: (1) linking to Twitter CDN images, (2) implementing R2 fallback logic, (3) generating thumbnails, (4) integrating thumbnails with Open Graph, and (5) testing image loading and fallback.",
+			"reasoning": "Image handling involves external dependencies, fallback logic, and thumbnail generation, each with potential edge cases and performance considerations."
 		},
 		{
 			"taskId": 8,
-			"taskTitle": "Frontend: Dashboard - Display Recent Detections Table",
-			"complexityScore": 6,
-			"recommendedSubtasks": 5,
-			"expansionPrompt": "Expand into subtasks for implementing the API endpoint, fetching data in React, rendering the table, formatting data, and styling with TailwindCSS.",
-			"reasoning": "This task involves both backend (API endpoint) and frontend (data fetching, table rendering, formatting) work, requiring coordination and some data transformation."
+			"taskTitle": "Add Page View Counter and Analytics",
+			"complexityScore": 4,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Expand into: (1) incrementing view counters, (2) tracking last_viewed timestamps, (3) querying top viewed pages, and (4) validating analytics logic.",
+			"reasoning": "Basic analytics and counters are simple to implement, but require careful database updates and validation to ensure accuracy."
 		},
 		{
 			"taskId": 9,
-			"taskTitle": "Frontend: Dashboard - Implement Charts (Recharts)",
-			"complexityScore": 6,
+			"taskTitle": "Implement Error Handling and Edge Cases",
+			"complexityScore": 5,
 			"recommendedSubtasks": 4,
-			"expansionPrompt": "Break down into subtasks for installing Recharts, processing detection data, implementing the Pie and Bar charts, and integrating them into the dashboard.",
-			"reasoning": "Implementing charts requires data aggregation, component integration, and UI work, but leverages established libraries, keeping complexity moderate."
+			"expansionPrompt": "Divide into: (1) handling 404 errors, (2) handling 410 and deleted detections, (3) handling 500 and database errors, and (4) implementing branded error pages and image placeholders.",
+			"reasoning": "Comprehensive error handling covers multiple scenarios and requires branded UI for each, but the logic is well-defined and modular."
 		},
 		{
 			"taskId": 10,
-			"taskTitle": "Security: Secrets Management and Dashboard Protection",
-			"complexityScore": 7,
+			"taskTitle": "Optimize Performance and Caching",
+			"complexityScore": 6,
 			"recommendedSubtasks": 5,
-			"expansionPrompt": "Expand into subtasks for identifying secrets, configuring Wrangler secrets, implementing dashboard protection (Cloudflare Access or Basic Auth), documenting the setup, and testing access controls.",
-			"reasoning": "Proper secrets management and access control are critical for security, requiring careful configuration, documentation, and testing across both backend and frontend."
+			"expansionPrompt": "Break down into: (1) configuring edge cache, (2) setting browser cache headers, (3) implementing cache API logic, (4) testing cache behavior, and (5) measuring performance under load.",
+			"reasoning": "Caching involves both configuration and code changes, with a need for thorough testing to ensure correct behavior and performance improvements."
 		},
 		{
 			"taskId": 11,
-			"taskTitle": "Wrangler Configuration and Deployment Setup",
-			"complexityScore": 7,
-			"recommendedSubtasks": 6,
-			"expansionPrompt": "Break down into subtasks for configuring wrangler.toml for worker and dashboard, setting up deployment scripts, verifying local development, and testing full deployment.",
-			"reasoning": "Coordinating deployment for both Cloudflare Worker and Pages from a monorepo, including D1 bindings and secrets, involves multiple configuration files and deployment scenarios, making it moderately complex[1][2][4]."
+			"taskTitle": "Integrate Detection Page URL into Twitter Bot Replies",
+			"complexityScore": 5,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Expand into: (1) modifying bot reply logic, (2) storing the URL in the database, (3) testing reply formatting, and (4) verifying database updates.",
+			"reasoning": "Bot integration is straightforward but requires coordination between backend and external API, with testing for both reply content and data storage."
 		},
 		{
 			"taskId": 12,
-			"taskTitle": "Documentation, .env.example, and Final Package Configuration",
-			"complexityScore": 5,
-			"recommendedSubtasks": 4,
-			"expansionPrompt": "Expand into subtasks for writing the README, creating .env.example, reviewing package.json files, and verifying documentation clarity.",
-			"reasoning": "While essential, documentation and configuration review are straightforward tasks, but require attention to detail and completeness."
+			"taskTitle": "Implement Monitoring and Dashboard Integration",
+			"complexityScore": 6,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Divide into: (1) logging errors and events, (2) storing logs and statistics, (3) integrating analytics into the dashboard, (4) displaying statistics, and (5) validating monitoring accuracy.",
+			"reasoning": "Monitoring and dashboard integration require both backend logging and frontend dashboard updates, with a need for real-time accuracy and clear presentation."
 		}
 	]
 }

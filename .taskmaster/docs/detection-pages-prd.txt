@@ -1,0 +1,213 @@
+# Product Requirements Document: Public Detection Results Pages
+
+## Project Overview
+Implement publicly accessible, shareable pages that display AI detection results for analyzed images. Each detection result will have a unique, short URL that can be shared and embedded in social media with Open Graph support.
+
+## Core Requirements
+
+### 1. URL Structure & Routing
+- **Format**: `/detect/[unique-string]`
+- **Unique String Requirements**:
+  - 5-6 characters using Base36 (0-9, a-z) for 100,000+ capacity
+  - Generated using secure random method
+  - Case-insensitive for user convenience
+  - No offensive words or confusing patterns (0/O, 1/l/I)
+- **Implementation**: Served directly by Cloudflare Worker, not dashboard app
+
+### 2. Page Generation Trigger
+- **Automatic Creation**: Generate page for every AI detection result
+- **Integration**: Include page URL in Twitter bot replies immediately after analysis
+- **Database Storage**: Store page metadata (ID, URL, creation timestamp, view count)
+
+### 3. Page Content & Data Display
+
+#### Required Information Display:
+- **Images**: Display 1-4 images that were analyzed (Twitter's maximum)
+- **Detection Scores**: Individual AI probability score for each image
+- **Overall Assessment**: Combined result with confidence level
+- **Original Source**: Link to original Twitter post that was analyzed
+- **Analysis Metadata**: 
+  - Timestamp of analysis
+  - Processing time
+  - Hashtags from original tweet
+- **Branding**: Subtle "Analyzed by TruthScan" footer
+
+#### Layout Requirements:
+- **Mobile-First Design**: Optimized primarily for mobile viewing
+- **Minimalist Styling**: White background, clean typography
+- **Responsive Grid**: 1-2 images per row on mobile, 2-4 on desktop
+- **Accessible Colors**: High contrast for scores, WCAG 2.1 AA compliant
+
+### 4. Social Media Integration
+
+#### Open Graph Meta Tags:
+- **og:title**: "AI Image Analysis Results"
+- **og:description**: "X images analyzed - Y% AI probability detected"
+- **og:image**: Thumbnail grid of analyzed images or first image
+- **og:url**: Full URL to detection page
+- **og:type**: "website"
+- **twitter:card**: "summary_large_image"
+
+#### SEO Optimization:
+- **Title Tag**: "AI Detection Results - [Score]% Confidence"
+- **Meta Description**: Dynamic based on results
+- **Structured Data**: JSON-LD for enhanced search results
+- **Canonical URL**: Self-referencing canonical
+
+### 5. Technical Architecture
+
+#### Database Schema Extensions:
+```sql
+-- New table for detection pages
+CREATE TABLE detection_pages (
+    id TEXT PRIMARY KEY,           -- Short unique identifier
+    detection_id TEXT NOT NULL,   -- FK to existing detections table
+    created_at INTEGER NOT NULL,  -- Unix timestamp
+    view_count INTEGER DEFAULT 0, -- Page view counter
+    last_viewed INTEGER,          -- Last view timestamp
+    FOREIGN KEY (detection_id) REFERENCES detections(id)
+);
+
+-- Add page_id to detections table
+ALTER TABLE detections ADD COLUMN page_id TEXT;
+```
+
+#### Worker Route Handling:
+- **Pattern**: `/detect/:id`
+- **Method**: GET only
+- **Response**: HTML with embedded CSS and minimal JavaScript
+- **Caching**: Edge cache for 24 hours, browser cache for 1 hour
+- **Rate Limiting**: 100 requests per minute per IP (Cloudflare automatic)
+
+#### Page Generation:
+- **Template**: HTML template with variable substitution
+- **Styling**: Inline CSS for performance (no external stylesheets)
+- **Images**: Direct links to Twitter CDN or cached copies
+- **Fallbacks**: Graceful degradation if images unavailable
+
+### 6. Image Handling Strategy
+
+#### Current State Analysis:
+- Images are already being processed and stored/referenced in D1
+- Twitter image URLs have expiration and access limitations
+- Need to determine current image storage approach in existing codebase
+
+#### Recommended Approach:
+- **Primary**: Link directly to Twitter's CDN when available
+- **Fallback**: Cache images in Cloudflare R2 if Twitter URLs fail
+- **Thumbnail Generation**: Create smaller versions for Open Graph previews
+
+### 7. Performance Requirements
+
+#### Response Time Targets:
+- **Page Load**: < 2 seconds on 3G mobile
+- **Time to First Byte**: < 800ms
+- **Largest Contentful Paint**: < 2.5 seconds
+
+#### Scalability Considerations:
+- **Concurrent Users**: Handle 1000+ simultaneous page views
+- **Database Queries**: Optimized single query per page load
+- **Edge Caching**: Leverage Cloudflare's global CDN
+
+### 8. Security & Privacy
+
+#### Data Protection:
+- **Public Access**: All pages publicly accessible (no authentication)
+- **Data Retention**: Pages persist indefinitely (no auto-expiration for MVP)
+- **Rate Limiting**: Cloudflare automatic protection against abuse
+- **Input Validation**: Sanitize all database outputs for XSS prevention
+
+#### Content Policies:
+- **Image Content**: Display only images that were publicly posted on Twitter
+- **Attribution**: Always link back to original Twitter source
+- **Removal Requests**: Process via contact information (manual for MVP)
+
+### 9. Analytics & Monitoring
+
+#### Tracking Requirements:
+- **Page Views**: Simple counter per page (no user tracking)
+- **Popular Pages**: Top 10 most viewed pages
+- **Error Monitoring**: 404s, database errors, image loading failures
+- **Performance Metrics**: Page load times, cache hit rates
+
+#### Implementation:
+- **Storage**: Use existing D1 database with view_count column
+- **Privacy**: No cookies, no user identification, no third-party analytics
+- **Dashboard Integration**: Show page statistics in existing admin dashboard
+
+### 10. Error Handling & Edge Cases
+
+#### 404 Scenarios:
+- **Invalid ID**: Return 404 with branded error page
+- **Deleted Detection**: Return 410 Gone with explanation
+- **Database Error**: Return 500 with retry suggestion
+
+#### Image Loading Failures:
+- **Twitter CDN Down**: Show placeholder with detection scores
+- **Broken Image URLs**: Display "Image Unavailable" with original tweet link
+- **Partial Loading**: Show available images, note missing ones
+
+#### Performance Degradation:
+- **High Traffic**: Implement queue system if needed
+- **Database Overload**: Use cached responses for popular pages
+- **CDN Issues**: Serve minimal version without images
+
+### 11. Future Considerations (Out of Scope for MVP)
+
+#### Potential Enhancements:
+- **Page Expiration**: Auto-delete after X days of no views
+- **Custom URLs**: Allow users to request custom short URLs
+- **Batch Analysis**: Multiple tweet analysis on single page
+- **API Access**: RESTful API for detection page data
+- **Embed Widgets**: JavaScript embeddable widgets for other sites
+
+## Success Metrics
+
+### Primary KPIs:
+- **Page Generation Success Rate**: > 99% of detections get pages
+- **Page Load Performance**: < 2s average load time
+- **Social Sharing**: Track click-through rates from Twitter
+- **System Reliability**: < 0.1% error rate
+
+### Secondary Metrics:
+- **Popular Content**: Most viewed detection results
+- **Traffic Patterns**: Peak usage times and geographic distribution
+- **User Engagement**: Time spent on pages, bounce rate
+
+## Technical Risks & Mitigation
+
+### High Risk:
+- **Twitter Image CDN Changes**: Implement R2 backup storage
+- **Database Performance**: Optimize queries, consider indexing
+- **Traffic Spikes**: Leverage Cloudflare caching and Workers scaling
+
+### Medium Risk:
+- **Open Graph Rendering**: Test with multiple social platforms
+- **Mobile Performance**: Extensive mobile testing across devices
+- **URL Collisions**: Implement collision detection and retry logic
+
+### Low Risk:
+- **SEO Performance**: Monitor search engine indexing
+- **Accessibility Compliance**: Automated and manual accessibility testing
+
+## Implementation Timeline
+
+### Phase 1: Core Functionality (Week 1-2)
+- Database schema updates
+- Basic page generation and routing
+- Template creation and styling
+
+### Phase 2: Integration (Week 2-3)
+- Twitter bot integration
+- Open Graph implementation
+- Error handling and edge cases
+
+### Phase 3: Optimization (Week 3-4)
+- Performance tuning
+- Caching optimization
+- Analytics implementation
+
+### Phase 4: Testing & Launch (Week 4)
+- Comprehensive testing
+- Deployment to production
+- Monitoring and bug fixes 

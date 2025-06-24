@@ -1,0 +1,39 @@
+# Task ID: 11
+# Title: Integrate Detection Page URL into Twitter Bot Replies
+# Status: pending
+# Dependencies: 2, 5
+# Priority: medium
+# Description: Automatically include detection page URL in Twitter bot replies.
+# Details:
+Modify the Twitter bot to append the detection page URL to replies after analysis. Store the URL in the detections table. Example:
+
+const reply = `Analysis complete! View results: https://example.com/detect/${shortId}`;
+
+# Test Strategy:
+Test Twitter bot replies for correct URL inclusion. Verify URL is stored in the database.
+
+# Subtasks:
+## 1. Modify Bot Reply Logic [pending]
+### Dependencies: None
+### Description: Update the bot's reply logic to include the handling and formatting of URLs in its responses, ensuring that the bot can dynamically insert URLs as needed based on conversation context.
+### Details:
+This involves adjusting the bot's response generation code to detect when a URL should be included and to format the reply accordingly, following best practices for conversational bots.
+
+## 2. Store URL in Database [pending]
+### Dependencies: 11.1
+### Description: Implement functionality to save the relevant URL to the database whenever the bot generates or receives a URL as part of its conversation flow.
+### Details:
+This requires updating the backend to capture the URL from the bot's logic and persist it in the appropriate database table, ensuring data integrity and retrievability.
+
+## 3. Test Reply Formatting [pending]
+### Dependencies: 11.1
+### Description: Develop and execute tests to verify that the bot's replies, including those containing URLs, are formatted correctly and meet user experience standards.
+### Details:
+This includes unit and integration tests to check for proper URL embedding, clickable links, and overall message clarity in various scenarios.
+
+## 4. Verify Database Updates [pending]
+### Dependencies: 11.2
+### Description: Test and confirm that URLs are correctly stored in the database after the bot processes and replies with them, ensuring consistency between the bot's output and backend data.
+### Details:
+This involves querying the database after bot interactions to ensure that the expected URLs are present and accurately recorded.
+
