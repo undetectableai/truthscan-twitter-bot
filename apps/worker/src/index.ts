@@ -556,7 +556,7 @@ async function pollTwitterMentionsIncremental(
     // Build Twitter API v2 search URL with parameters
     const searchUrl = new URL('https://api.twitter.com/2/tweets/search/recent');
     searchUrl.searchParams.set('query', searchQuery);
-    searchUrl.searchParams.set('tweet.fields', 'id,text,author_id,created_at,attachments,referenced_tweets');
+    searchUrl.searchParams.set('tweet.fields', 'id,text,author_id,created_at,attachments,referenced_tweets,entities');
     searchUrl.searchParams.set('user.fields', 'username');
     searchUrl.searchParams.set('media.fields', 'url,preview_image_url,type');
     searchUrl.searchParams.set('expansions', 'author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.attachments.media_keys');
@@ -641,26 +641,44 @@ async function pollTwitterMentionsIncremental(
               t => t.id === referencedTweetId
             );
             
-            if (originalTweet?.attachments?.media_keys) {
-              const mediaObjects = searchResults.includes?.media?.filter(
-                media => originalTweet.attachments!.media_keys.includes(media.media_key!)
-              ) || [];
+            if (originalTweet) {
+              // Convert the v2 format to webhook format and extract all images (media + Open Graph)
+              const webhookFormatTweet = convertV2ToWebhookFormat(originalTweet);
               
-              imageUrls = mediaObjects
-                .filter(media => media.type === 'photo')
-                .map(media => media.url!)
-                .filter(url => url);
+              // Add media entities from v2 media_keys
+              if (originalTweet.attachments?.media_keys) {
+                const mediaObjects = searchResults.includes?.media?.filter(
+                  media => originalTweet.attachments!.media_keys.includes(media.media_key!)
+                ) || [];
                 
-              // IMPORTANT: Extract hashtags and text from the ORIGINAL tweet, not the reply
+                const mediaEntities = mediaObjects
+                  .filter(media => media.type === 'photo')
+                  .map(media => ({
+                    id: 0, // Placeholder
+                    media_url_https: media.url!,
+                    type: 'photo'
+                  }));
+                
+                webhookFormatTweet.entities!.media = mediaEntities;
+                webhookFormatTweet.extended_entities!.media = mediaEntities;
+              }
+              
+              // Extract all images (media + Open Graph) using the enhanced extraction
+              console.log('Extracting images from original tweet using Open Graph extraction...');
+              imageUrls = await extractAllImageUrls(webhookFormatTweet);
+              
+              // Extract hashtags and text from the ORIGINAL tweet
               sourceText = originalTweet.text || '';
               const hashtagMatches = sourceText.match(/#\w+/g) || [];
               sourceHashtags = hashtagMatches.map(tag => tag.substring(1)); // Remove # symbol
-                
-              console.log('Found NEW reply to tweet with images:', {
+              
+              console.log('Found NEW reply to tweet with comprehensive image extraction:', {
                 originalTweetId: referencedTweetId,
                 imageCount: imageUrls.length,
+                urlsInOriginal: originalTweet.entities?.urls?.length || 0,
                 originalText: sourceText.substring(0, 100) + '...',
-                originalHashtags: sourceHashtags
+                originalHashtags: sourceHashtags,
+                extractedImages: imageUrls
               });
             }
           }
@@ -1363,6 +1381,28 @@ interface TwitterV2SearchResponse {
       type: string;
       id: string;
     }>;
+    entities?: {
+      urls?: Array<{
+        url: string;
+        expanded_url?: string;
+        display_url?: string;
+        indices?: [number, number];
+        unwound?: {
+          url: string;
+          status: number;
+          title?: string;
+          description?: string;
+        };
+      }>;
+      hashtags?: Array<{
+        tag: string;
+        indices?: [number, number];
+      }>;
+      user_mentions?: Array<{
+        username: string;
+        indices?: [number, number];
+      }>;
+    };
   }>;
   includes?: {
     users?: Array<{
@@ -1380,6 +1420,28 @@ interface TwitterV2SearchResponse {
       author_id: string;
       attachments?: {
         media_keys: string[];
+      };
+      entities?: {
+        urls?: Array<{
+          url: string;
+          expanded_url?: string;
+          display_url?: string;
+          indices?: [number, number];
+          unwound?: {
+            url: string;
+            status: number;
+            title?: string;
+            description?: string;
+          };
+        }>;
+        hashtags?: Array<{
+          tag: string;
+          indices?: [number, number];
+        }>;
+        user_mentions?: Array<{
+          username: string;
+          indices?: [number, number];
+        }>;
       };
     }>;
   };
@@ -1588,6 +1650,41 @@ async function parseTweetData(tweet: TwitterTweet, env: Env): Promise<ParsedTwee
     mentionedUsers,
     isMentioningBot,
     hashtags
+  };
+}
+
+/**
+ * Convert Twitter API v2 format to v1.1 webhook format for image extraction
+ */
+function convertV2ToWebhookFormat(v2Tweet: any): TwitterTweet {
+  return {
+    id_str: v2Tweet.id,
+    text: v2Tweet.text || '',
+    user: {
+      id_str: v2Tweet.author_id || '',
+      screen_name: 'unknown' // Will be populated by caller if available
+    },
+    entities: {
+      urls: v2Tweet.entities?.urls?.map((url: any) => ({
+        url: url.url,
+        expanded_url: url.expanded_url || url.url,
+        display_url: url.display_url || url.url,
+        indices: url.indices || [0, 0],
+        unwound: url.unwound
+      })) || [],
+      hashtags: v2Tweet.entities?.hashtags?.map((hashtag: any) => ({
+        text: hashtag.tag,
+        indices: hashtag.indices || [0, 0]
+      })) || [],
+      user_mentions: v2Tweet.entities?.user_mentions?.map((mention: any) => ({
+        screen_name: mention.username,
+        id_str: 'unknown'
+      })) || [],
+      media: [] // Media is handled differently in v2, will be populated separately
+    },
+    extended_entities: {
+      media: [] // Will be populated separately from media_keys
+    }
   };
 }
 
