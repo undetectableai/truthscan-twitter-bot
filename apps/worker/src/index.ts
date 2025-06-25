@@ -694,6 +694,11 @@ export default {
     if (url.pathname.startsWith('/d/')) {
             return handleDetectionPage(request, env);
           }
+          
+          // Handle static assets requests
+          if (url.pathname.startsWith('/assets/')) {
+            return handleAssetRequest(request);
+          }
             return new Response('Truthscan Twitter Bot API\nEndpoints:\n- GET/POST /webhook/twitter (Twitter webhook)\n- GET /api/detections (Dashboard API, protected)\n- GET /api/test-db (Database test, protected)\n- GET /api/test-shorturl (Short URL generation test, protected)\n- GET /d/:id (Public detection results page)', { 
               status: 200,
               headers: { 'Content-Type': 'text/plain' }
@@ -3409,6 +3414,36 @@ async function handleClearCache(_request: Request, _env: Env): Promise<Response>
 }
 
 /**
+ * Handle static asset requests like logo images
+ */
+async function handleAssetRequest(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  
+  // Only serve the logo for now
+  if (url.pathname === '/assets/logo.png') {
+    try {
+      // For now, use a fallback to TruthScan favicon until we set up proper asset serving
+      // In a production Cloudflare Worker, you would typically use Workers Static Assets
+      const logoResponse = await fetch('https://truthscan.com/favicon.ico');
+      if (logoResponse.ok) {
+        return new Response(logoResponse.body, {
+          status: 200,
+          headers: {
+            'Content-Type': 'image/png',
+            'Cache-Control': 'public, max-age=86400',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error serving logo:', error);
+    }
+  }
+  
+  return new Response('Asset not found', { status: 404 });
+}
+
+/**
  * Handle image requests (/images/:id) - Proxy from Twitter CDN
  */
 async function handleImageRequest(request: Request, env: Env): Promise<Response> {
@@ -3929,12 +3964,39 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       ? Math.round(data.detection_score * 100)
       : Math.round(data.detection_score);
   }
-  const isAI = scorePercentage >= 70;
-  const isUncertain = scorePercentage >= 30 && scorePercentage < 70;
+  // Use the same confidence logic as tweet responses
+  let confidenceLevel = '';
+  let classification = '';
   
-  // Color coding based on AI probability
-  const scoreColor = isAI ? '#DC2626' : isUncertain ? '#F59E0B' : '#059669'; // Red, Yellow, Green
-  const scoreLabel = isAI ? 'AI-Generated' : isUncertain ? 'Uncertain' : 'Human-Created';
+  if (scorePercentage >= 80) {
+    confidenceLevel = 'High';
+    classification = 'AI Generated';
+  } else if (scorePercentage >= 60) {
+    confidenceLevel = 'Medium';
+    classification = 'Likely AI';
+  } else if (scorePercentage >= 50) {
+    confidenceLevel = 'Low';
+    classification = 'More Likely AI';
+  } else if (scorePercentage >= 40) {
+    confidenceLevel = 'Low';
+    classification = 'More Likely Real';
+  } else if (scorePercentage >= 20) {
+    confidenceLevel = 'Medium';
+    classification = 'Likely Real';
+  } else {
+    confidenceLevel = 'High';
+    classification = 'Real Image';
+  }
+  
+  // Color coding based on AI probability and confidence
+  const isAI = scorePercentage >= 50;
+  let scoreColor;
+  
+  if (confidenceLevel === 'Low') {
+    scoreColor = '#F59E0B'; // Yellow for low confidence (uncertain)
+  } else {
+    scoreColor = isAI ? '#DC2626' : '#059669'; // Red for AI, Green for Human
+  }
   
   // Format timestamp
   const detectionDate = new Date(data.timestamp * 1000);
@@ -3950,7 +4012,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
   const pageUrl = `${currentDomain}/d/${pageId}`;
   
   // Generate dynamic, compelling meta descriptions under character limits
-  const shortDescription = `${scorePercentage}% ${scoreLabel} - AI detection analysis from TruthScan`;
+  const shortDescription = `${scorePercentage}% ${classification} - AI detection analysis from TruthScan`;
   const longDescription = `AI detection analysis: ${scorePercentage}% probability of AI generation. From @${data.twitter_handle} tweet. Analyzed ${timeAgo}.`;
   
   // Image URLs with fallback
@@ -3965,12 +4027,12 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Detection: ${scorePercentage}% ${scoreLabel} | TruthScan</title>
+  <title>AI Detection: ${scorePercentage}% ${classification} | TruthScan</title>
   
   <!-- Enhanced SEO Meta Tags -->
   <meta name="description" content="${longDescription}">
   <meta name="robots" content="index, follow">
-  <meta name="keywords" content="AI detection, artificial intelligence, image analysis, TruthScan, ${scoreLabel.toLowerCase()}">
+  <meta name="keywords" content="AI detection, artificial intelligence, image analysis, TruthScan, ${classification.toLowerCase()}">
   <meta name="author" content="TruthScan">
   <link rel="canonical" href="${pageUrl}">
   
@@ -4003,7 +4065,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
   <meta name="twitter:label1" content="AI Probability">
   <meta name="twitter:data1" content="${scorePercentage}%">
   <meta name="twitter:label2" content="Classification">
-  <meta name="twitter:data2" content="${scoreLabel}">
+  <meta name="twitter:data2" content="${classification}">
   
   <!-- Additional SEO and Application Meta Tags -->
   <meta name="application-name" content="TruthScan">
@@ -4019,7 +4081,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
   <meta property="article:section" content="AI Detection">
   <meta property="article:tag" content="AI Detection">
   <meta property="article:tag" content="Image Analysis">
-  <meta property="article:tag" content="${scoreLabel}">
+  <meta property="article:tag" content="${classification}">
   
   <!-- App and Browser Meta Tags -->
   <meta name="theme-color" content="${scoreColor}">
@@ -4086,7 +4148,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       "artificial intelligence",
       "image analysis",
       "content verification",
-      "${scoreLabel.toLowerCase()}",
+      "${classification.toLowerCase()}",
       "TruthScan"
     ],
     "inLanguage": "en-US",
@@ -4184,6 +4246,77 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       font-weight: 400;
     }
     
+    /* Header */
+    .page-header {
+      text-align: center;
+      padding: calc(var(--spacing-xl) * 0.7) var(--spacing-sm) calc(var(--spacing-xl) * 0.7);
+      margin-bottom: 0;
+    }
+    
+    .header-link {
+      display: inline-block;
+      text-decoration: none;
+      transition: opacity 0.2s ease;
+    }
+    
+    .header-link:hover {
+      opacity: 0.8;
+    }
+    
+    .header-content {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    
+    .logo-container {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+    }
+    
+    .logo-image {
+      display: block;
+      max-width: none;
+      max-height: none;
+    }
+    
+    .header-title {
+      font-size: 1.875rem;
+      line-height: 2.25rem;
+      font-weight: 600;
+      flex-shrink: 0;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .header-title-truthscan {
+      background: linear-gradient(to right, #2563eb, #1d4ed8, #1e40af);
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+      transition: all 0.2s ease;
+    }
+    
+    .header-link:hover .header-title-truthscan {
+      background: linear-gradient(to right, #1d4ed8, #1e40af, #1e3a8a);
+    }
+    
+    .header-title-rest {
+      background: linear-gradient(to right, #0f172a, #1e3a8a, #0f172a);
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+    }
+    
     /* Main Container */
     .container {
       max-width: 900px;
@@ -4193,117 +4326,121 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     }
     
     
-    /* Main Result Card */
-    .result-card {
-      background: var(--background-white);
-      border: 1px solid var(--border-color);
-      border-radius: var(--border-radius-lg);
-      box-shadow: var(--shadow-xl);
-      overflow: hidden;
+    /* Main Content Container */
+    .main-content {
       margin-bottom: var(--spacing-xl);
-      backdrop-filter: blur(10px);
-      position: relative;
     }
     
-
+    /* Detection Row - Horizontal Layout */
+    .detection-row {
+      display: flex;
+      flex-direction: row;
+      align-items: flex-start;
+      gap: var(--spacing-xl);
+      margin-bottom: var(--spacing-xl);
+      width: 100%;
+      max-width: 1400px; /* Prevent too wide on very large screens */
+      margin-left: auto;
+      margin-right: auto;
+    }
     
-    /* Image Section */
-    .image-container {
-      position: relative;
-      aspect-ratio: 16 / 9;
-      overflow: hidden;
-      background: linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%);
+    .detection-row:last-child {
+      margin-bottom: 0;
+    }
+    
+    /* Image Section - Left Side */
+    .image-section {
+      flex-shrink: 0;
+      flex-basis: 500px; /* Fixed width for consistency */
+      max-width: 500px;
     }
     
     .analyzed-image {
-      width: 100%;
-      height: 100%;
+      width: 500px;
+      height: 500px;
       object-fit: cover;
       object-position: center;
-      transition: transform 0.3s ease;
+      border-radius: 0; /* Square corners */
+      /* Blue drop shadow similar to TruthScan style - Stronger visibility */
+      box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.4), 
+                  0 4px 6px -2px rgba(59, 130, 246, 0.3),
+                  0 0 0 1px rgba(59, 130, 246, 0.15);
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
     }
     
     .analyzed-image:hover {
-      transform: scale(1.02);
+      transform: translateY(-2px);
+      box-shadow: 0 15px 30px -5px rgba(59, 130, 246, 0.5), 
+                  0 6px 8px -2px rgba(59, 130, 246, 0.4),
+                  0 0 0 1px rgba(59, 130, 246, 0.2);
     }
     
     .image-fallback {
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 100%;
-      height: 100%;
+      width: 400px;
+      height: 500px;
       background: linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%);
       color: var(--text-muted);
       font-size: 1.125rem;
       font-weight: 500;
+      border-radius: 0; /* Square corners */
+      box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.4), 
+                  0 4px 6px -2px rgba(59, 130, 246, 0.3),
+                  0 0 0 1px rgba(59, 130, 246, 0.15);
     }
     
-    /* Results Section */
+    /* Results Section - Right Side */
     .results-section {
-      padding: var(--spacing-xl) var(--spacing-lg);
-      background: var(--background-white);
+      flex: 1;
+      min-width: 0; /* Prevents flex item from overflowing */
     }
     
-    .confidence-score {
-      text-align: center;
+    .score-metrics {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
       margin-bottom: var(--spacing-xl);
-      padding: var(--spacing-xl) var(--spacing-lg);
-      background: linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%);
-      border-radius: var(--border-radius-lg);
-      border: 1px solid var(--border-color);
-      box-shadow: var(--shadow-md);
     }
     
-    .score-value {
-      font-size: 4.5rem;
+    .metric-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: calc(var(--spacing-lg) * 0.15) 0;
+    }
+    
+    .metric-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    
+    .metric-value {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--primary-color);
+    }
+    
+    .probability-value {
+      font-size: 1.4rem;
       font-weight: 900;
-      color: ${scoreColor};
-      display: block;
-      line-height: 1;
-      margin-bottom: var(--spacing-sm);
-      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
       background: linear-gradient(135deg, ${scoreColor} 0%, ${scoreColor}CC 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
     
-    .score-label {
-      font-size: 1.375rem;
-      font-weight: 700;
-      color: var(--primary-color);
-      margin-top: var(--spacing-sm);
-      display: block;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-    }
-    
-    .confidence-bar {
-      width: 100%;
-      height: 12px;
-      background: var(--border-color);
-      border-radius: var(--border-radius);
+    .source-link-container {
       margin-top: var(--spacing-lg);
-      overflow: hidden;
-      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+      padding-top: var(--spacing-lg);
+      text-align: center;
     }
     
-    .confidence-fill {
-      height: 100%;
-      background: linear-gradient(90deg, ${scoreColor} 0%, ${scoreColor}DD 100%);
-      width: ${scorePercentage}%;
-      transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-      border-radius: var(--border-radius);
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    }
-    
-    /* Source Section */
-    .source-section {
-      padding: var(--spacing-lg);
-      border-top: 1px solid var(--border-color);
-      background: linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%);
-    }
+
     
     .source-link {
       display: inline-flex;
@@ -4329,75 +4466,98 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       transform: translateY(-1px);
     }
     
-
-
-    
-    /* Actions Section */
-    .actions-section {
-      padding: var(--spacing-lg);
-      border-top: 1px solid var(--border-color);
-      display: flex;
-      gap: var(--spacing-md);
-      flex-wrap: wrap;
-      justify-content: center;
-      background: var(--background-white);
+    /* Social Sharing Section - In Right Column */
+    .share-section {
+      margin-top: var(--spacing-lg);
+      padding-top: var(--spacing-lg);
     }
     
-    .action-btn {
-      padding: var(--spacing-md) var(--spacing-lg);
-      border: 1px solid var(--border-color);
-      border-radius: var(--border-radius);
-      background: var(--background-white);
-      color: var(--text-color);
-      text-decoration: none;
-      font-size: 1rem;
-      font-weight: 600;
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      cursor: pointer;
-      min-height: 48px;
-      min-width: 120px;
+    .share-row {
       display: flex;
       align-items: center;
+      gap: var(--spacing-md);
       justify-content: center;
-      box-shadow: var(--shadow-sm);
+    }
+    
+    .share-label {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-color);
+      flex-shrink: 0;
+    }
+    
+    .share-buttons {
+      display: flex;
+      gap: var(--spacing-sm);
+      align-items: center;
+    }
+    
+    .social-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      background-size: 24px 24px;
+      background-position: center;
+      background-repeat: no-repeat;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
       position: relative;
-      overflow: hidden;
     }
     
-    .action-btn::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: -100%;
-      width: 100%;
-      height: 100%;
-      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-      transition: left 0.5s;
-    }
-    
-    .action-btn:hover::before {
-      left: 100%;
-    }
-    
-    .action-btn:hover {
-      background: linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%);
-      border-color: var(--accent-blue);
-      box-shadow: var(--shadow-md);
+    .social-btn:hover {
       transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
     
-    .action-btn.primary {
-      background: linear-gradient(135deg, var(--accent-blue) 0%, #2563EB 100%);
-      color: white;
-      border-color: var(--accent-blue);
-      box-shadow: var(--shadow-lg);
+    .social-btn:active {
+      transform: translateY(0);
     }
     
-    .action-btn.primary:hover {
-      background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
-      border-color: #2563EB;
-      box-shadow: var(--shadow-xl);
-      transform: translateY(-2px);
+    /* Facebook Button */
+    .social-btn.facebook {
+      background-color: #1877F2;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z'/%3E%3C/svg%3E");
+    }
+    
+    .social-btn.facebook:hover {
+      background-color: #166FE5;
+    }
+    
+    /* Twitter/X Button */
+    .social-btn.twitter {
+      background-color: #000000;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z'/%3E%3C/svg%3E");
+    }
+    
+    .social-btn.twitter:hover {
+      background-color: #333333;
+    }
+    
+    /* LinkedIn Button */
+    .social-btn.linkedin {
+      background-color: #0A66C2;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z'/%3E%3C/svg%3E");
+    }
+    
+    .social-btn.linkedin:hover {
+      background-color: #0958A5;
+    }
+    
+    /* Copy Link Button */
+    .social-btn.copy {
+      background-color: #6B7280;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244' stroke='white' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    }
+    
+    .social-btn.copy:hover {
+      background-color: #4B5563;
+    }
+    
+    .social-btn.copy.copied {
+      background-color: #059669;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='white'%3E%3Cpath stroke='white' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round' d='M20 6L9 17l-5-5'/%3E%3C/svg%3E");
     }
     
     /* Footer */
@@ -4424,44 +4584,150 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     
     /* Responsive Design */
     @media (min-width: 768px) {
-      .container {
-        padding: var(--spacing-xl) var(--spacing-md);
+      .page-header {
+        padding: calc(var(--spacing-xl) * 1.5 * 0.7) var(--spacing-lg) calc(var(--spacing-xl) * 1.5 * 0.7);
+        margin-bottom: 0;
       }
       
-      .score-value {
-        font-size: 5rem;
+      .header-title {
+        font-size: 2.25rem;
+        line-height: 2.75rem;
+      }
+      
+
+      
+      .container {
+        padding: var(--spacing-xl) var(--spacing-lg);
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+      
+      .detection-row {
+        gap: calc(var(--spacing-xl) * 1.5); /* More space between image and content on desktop */
+      }
+      
+      .metric-label {
+        font-size: 0.875rem;
+      }
+      
+      .metric-value {
+        font-size: 1.25rem;
+      }
+      
+      .probability-value {
+        font-size: 1.75rem;
       }
       
       .actions-section {
         justify-content: center;
+        gap: var(--spacing-lg);
       }
       
-      .action-btn {
-        min-width: 140px;
+      .social-btn {
+        width: 52px;
+        height: 52px;
+        background-size: 26px 26px;
       }
     }
     
+    /* Large Desktop Optimization */
+    @media (min-width: 1200px) {
+      .page-header {
+        padding: calc(var(--spacing-xl) * 2 * 0.7) calc(var(--spacing-xl) * 2) calc(var(--spacing-xl) * 2 * 0.7);
+        margin-bottom: 0;
+      }
+      
+      .header-title {
+        font-size: 2.5rem;
+        line-height: 3rem;
+      }
+      
+
+      
+      .container {
+        padding: var(--spacing-xl) calc(var(--spacing-xl) * 2);
+      }
+      
+      .detection-row {
+        gap: calc(var(--spacing-xl) * 2); /* Even more space on large screens */
+      }
+      
+      .results-section {
+        max-width: 600px; /* Prevent content from being too wide */
+      }
+      
+             .metric-label {
+         font-size: 1rem;
+       }
+       
+       .metric-value {
+         font-size: 1.4rem;
+       }
+       
+       .probability-value {
+         font-size: 2.1rem;
+       }
+    }
+    
     @media (max-width: 767px) {
-      .score-value {
-        font-size: 3.5rem;
+      .page-header {
+        padding: calc(var(--spacing-lg) * 0.7) var(--spacing-sm) calc(var(--spacing-lg) * 0.7);
+        margin-bottom: 0;
       }
       
-      .score-label {
-        font-size: 1.125rem;
+      .header-content {
+        flex-direction: column;
+        gap: var(--spacing-md);
       }
       
-      .confidence-score {
-        padding: var(--spacing-lg) var(--spacing-md);
+      .header-title {
+        font-size: 1.5rem;
+        line-height: 2rem;
+        text-align: center;
+        gap: 0.25rem;
+      }
+      
+
+      
+      /* Stack images and scores vertically on mobile */
+      .detection-row {
+        flex-direction: column;
+        align-items: center;
+        gap: var(--spacing-lg);
+      }
+      
+      .analyzed-image {
+        height: 300px; /* Smaller on mobile */
+        max-width: 100%;
+      }
+      
+      .image-fallback {
+        height: 300px; /* Smaller on mobile */
+        width: 100%;
+        max-width: 400px;
+      }
+      
+      .probability-value {
+        font-size: 1.2rem;
+      }
+      
+      .metric-value {
+        font-size: 0.9rem;
+      }
+      
+      .metric-label {
+        font-size: 0.7rem;
       }
       
       .actions-section {
-        flex-direction: column;
-        align-items: center;
+        gap: var(--spacing-md);
+        justify-content: center;
       }
       
-      .action-btn {
-        width: 100%;
-        max-width: 300px;
+      .social-btn {
+        width: 44px;
+        height: 44px;
+        background-size: 22px 22px;
       }
     }
     
@@ -4487,98 +4753,155 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
         --border-color: #000000;
         --text-color: #000000;
       }
-      
-      .result-card {
-        border: 2px solid #000000;
-      }
     }
   </style>
 </head>
 <body>
+  <!-- Page Header -->
+  <header class="page-header">
+    <a href="https://truthscan.com/ai-image-detector" class="header-link" target="_blank" rel="noopener noreferrer">
+      <div class="header-content">
+        <!-- TruthScan Logo -->
+        <div class="logo-container">
+          <img src="/assets/logo.png" alt="TruthScan Logo" class="logo-image" width="48" height="36">
+        </div>
+        
+        <!-- Header Title with Gradient -->
+        <h1 class="header-title">
+          <span class="header-title-truthscan">TruthScan</span>
+          <span class="header-title-rest">AI Image Detection Results</span>
+        </h1>
+      </div>
+    </a>
+  </header>
+
   <div class="container">
     
-    <!-- Main Result Card -->
-    <main class="result-card" role="main">
-      <!-- Image Section -->
-      <div class="image-container">
-        <img 
-          src="${currentDomain}/images/${pageId}" 
-          alt="Image analyzed for AI-generated content detection"
-          class="analyzed-image"
-          loading="lazy"
-          onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
-        >
-        <div class="image-fallback" style="display: none;">
-          🖼️ Image not available
-        </div>
-      </div>
-      
-      <!-- Results Section -->
-      <section class="results-section">
-        <div class="confidence-score">
-          <span class="score-value" aria-label="AI detection confidence score">${scorePercentage}%</span>
-          <span class="score-label">${scoreLabel}</span>
-          <div class="confidence-bar" role="progressbar" aria-valuenow="${scorePercentage}" aria-valuemin="0" aria-valuemax="100">
-            <div class="confidence-fill"></div>
+    <!-- Main Content -->
+    <main class="main-content" role="main">
+      <!-- Detection Row - Image Left, Score Right -->
+      <div class="detection-row">
+        <!-- Image Section -->
+        <div class="image-section">
+          <img 
+            src="${currentDomain}/images/${pageId}" 
+            alt="Image analyzed for AI-generated content detection"
+            class="analyzed-image"
+            loading="lazy"
+            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
+          >
+          <div class="image-fallback" style="display: none;">
+            🖼️ Image not available
           </div>
         </div>
-      </section>
-      
-      <!-- Source Section -->
-      <section class="source-section">
-        <a href="${twitterUrl}" class="source-link" target="_blank" rel="noopener noreferrer">
-          🐦 View Original Tweet by @${data.twitter_handle}
-        </a>
-      </section>
-      
-
-      
-      <!-- Actions Section -->
-      <section class="actions-section">
-        <button class="action-btn primary" onclick="shareResult()">Share Result</button>
-        <button class="action-btn" onclick="copyLink()">Copy Link</button>
-        <a href="${twitterUrl}" class="action-btn" target="_blank" rel="noopener noreferrer">View Tweet</a>
-      </section>
+        
+        <!-- Results Section -->
+        <section class="results-section">
+          <div class="score-metrics">
+            <!-- AI Probability -->
+            <div class="metric-item">
+              <div class="metric-label">AI Probability</div>
+              <div class="metric-value probability-value">${scorePercentage}%</div>
+            </div>
+            
+            <!-- Confidence -->
+            <div class="metric-item">
+              <div class="metric-label">Confidence</div>
+              <div class="metric-value confidence-value">${confidenceLevel}</div>
+            </div>
+            
+            <!-- Classification -->
+            <div class="metric-item">
+              <div class="metric-label">Classification</div>
+              <div class="metric-value classification-value" style="color: ${scoreColor};">${classification}</div>
+            </div>
+          </div>
+          
+          <!-- Original Tweet Link -->
+          <div class="source-link-container">
+            <a href="${twitterUrl}" class="source-link" target="_blank" rel="noopener noreferrer">
+              🐦 View Original Tweet by @${data.twitter_handle}
+            </a>
+          </div>
+          
+          <!-- Social Sharing Section -->
+          <div class="share-section">
+            <div class="share-row">
+              <div class="share-label">Share:</div>
+              <div class="share-buttons">
+                <button class="social-btn facebook" onclick="shareOnFacebook()" title="Share on Facebook"></button>
+                <button class="social-btn twitter" onclick="shareOnTwitter()" title="Share on Twitter/X"></button>
+                <button class="social-btn linkedin" onclick="shareOnLinkedIn()" title="Share on LinkedIn"></button>
+                <button class="social-btn copy" onclick="copyLink()" title="Copy Link"></button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
     </main>
     
     <!-- Footer -->
     <footer class="footer">
       <p>
-        Powered by <a href="https://truthscan.com" target="_blank" rel="noopener noreferrer">TruthScan</a> 
+        Powered by <a href="https://truthscan.com/ai-image-detector" target="_blank" rel="noopener noreferrer">TruthScan</a> 
         • AI detection results are estimates and should not be considered definitive
       </p>
     </footer>
   </div>
   
   <script>
-    // Minimal JavaScript for sharing functionality
-    function shareResult() {
-      if (navigator.share) {
-        navigator.share({
-          title: 'AI Detection Result: ${scorePercentage}% ${scoreLabel}',
-          text: 'Check out this AI detection analysis from TruthScan',
-          url: window.location.href
-        }).catch(console.error);
-      } else {
-        copyLink();
-      }
+    // Social sharing functionality
+    const shareData = {
+      title: 'AI Detection Result: ${scorePercentage}% ${classification}',
+      text: 'Check out this AI detection analysis from TruthScan - ${scorePercentage}% ${classification}',
+      url: window.location.href
+    };
+    
+    function shareOnFacebook() {
+      // Facebook requires specific parameters and formatting
+      const params = new URLSearchParams({
+        u: shareData.url,
+        quote: shareData.text
+      });
+      const url = 'https://www.facebook.com/sharer/sharer.php?' + params.toString();
+      window.open(url, 'facebook-share', 'width=626,height=436,scrollbars=no,resizable=no');
+    }
+    
+    function shareOnTwitter() {
+      const text = shareData.text + ' ' + shareData.url;
+      const url = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(text);
+      window.open(url, 'twitter-share', 'width=550,height=420,scrollbars=no,resizable=no');
+    }
+    
+    function shareOnLinkedIn() {
+      // LinkedIn sharing with proper parameters
+      const params = new URLSearchParams({
+        url: shareData.url,
+        mini: 'true',
+        title: shareData.title,
+        summary: shareData.text
+      });
+      const url = 'https://www.linkedin.com/sharing/share-offsite/?' + params.toString();
+      window.open(url, 'linkedin-share', 'width=626,height=675,scrollbars=no,resizable=no');
     }
     
     function copyLink() {
-      navigator.clipboard.writeText(window.location.href).then(() => {
+      navigator.clipboard.writeText(shareData.url).then(() => {
         const btn = event.target;
-        const originalText = btn.textContent;
-        btn.textContent = 'Copied!';
-        btn.style.background = '#059669';
-        btn.style.color = 'white';
-        btn.style.borderColor = '#059669';
+        btn.classList.add('copied');
         setTimeout(() => {
-          btn.textContent = originalText;
-          btn.style.background = '';
-          btn.style.color = '';
-          btn.style.borderColor = '';
+          btn.classList.remove('copied');
         }, 2000);
       }).catch(console.error);
+    }
+    
+    // Fallback native sharing for mobile devices
+    function fallbackShare() {
+      if (navigator.share) {
+        navigator.share(shareData).catch(console.error);
+      } else {
+        copyLink();
+      }
     }
     
     // Analytics (could be enhanced in Task 12)

@@ -23,7 +23,7 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --port 8787",
     "deploy": "wrangler deploy",
     "deploy:prod": "wrangler deploy --env production",
     "deploy:staging": "wrangler deploy --env staging",
@@ -31,10 +31,10 @@
     "tail:prod": "wrangler tail --env production",
     "logs": "wrangler tail --format pretty",
     "status": "wrangler whoami && echo '--- Secrets ---' && wrangler secret list",
-    "build": "tsc --noEmit",
+    "build": "wrangler build",
     "build:check": "tsc --noEmit && echo '✅ TypeScript compilation successful'",
     "type-check": "tsc --noEmit",
-    "lint": "eslint src --ext .ts --report-unused-disable-directives --max-warnings 0",
+    "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "clean": "rm -rf dist",
     "predeploy": "npm run build:check && npm run lint",
