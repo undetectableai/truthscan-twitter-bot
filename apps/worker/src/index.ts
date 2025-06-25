@@ -5195,20 +5195,10 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     }
     
     function shareOnLinkedIn() {
-      // LinkedIn sharing using 2025 best practices
-      // Opens LinkedIn's compose interface where users paste the URL manually
-      // This follows LinkedIn's official recommendation for URL sharing
-      const url = 'https://www.linkedin.com/feed/';
-      const newWindow = window.open(url, 'linkedin-share', 'width=626,height=675,scrollbars=no,resizable=no');
-      
-      // Copy URL to clipboard for easy pasting
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(shareData.url).then(() => {
-          // URL copied successfully - user can paste it in LinkedIn
-        }).catch(() => {
-          // Fallback: no clipboard access
-        });
-      }
+      // LinkedIn sharing using official LinkedIn sharing URL
+      // Opens LinkedIn's compose interface with the URL pre-filled
+      const url = 'https://www.linkedin.com/sharing/share-offsite/?url=' + encodeURIComponent(shareData.url);
+      window.open(url, 'linkedin-share', 'width=626,height=675,scrollbars=no,resizable=no');
     }
     
     function copyLink() {
