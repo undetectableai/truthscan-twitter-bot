@@ -4124,8 +4124,11 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
   // Backend domain for asset URLs (always use the worker domain for assets)
   const backendDomain = "https://truthscan-twitter-bot.bjuhasz08.workers.dev";
   
-  // Current page URL for sharing
-  const pageUrl = `${currentDomain}/d/${pageId}`;
+  // Canonical URL - always use main domain for SEO
+  const canonicalUrl = `https://truthscan.com/d/${pageId}`;
+  
+  // Current page URL for sharing (also use main domain)
+  const pageUrl = `https://truthscan.com/d/${pageId}`;
   
   // Generate dynamic, compelling meta descriptions under character limits
   const shortDescription = `${scorePercentage}% ${classification} - AI detection analysis from TruthScan`;
@@ -4153,7 +4156,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
   <meta name="robots" content="${robotsDirective}">
   <meta name="keywords" content="AI detection, artificial intelligence, image analysis, TruthScan, ${classification.toLowerCase()}">
   <meta name="author" content="TruthScan">
-  <link rel="canonical" href="${pageUrl}">
+  <link rel="canonical" href="${canonicalUrl}">
   
   <!-- Enhanced Open Graph Meta Tags for Social Sharing -->
   <meta property="og:title" content="${shortDescription}">
@@ -4229,10 +4232,10 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     "headline": "${shortDescription}",
     "name": "${shortDescription}",
     "description": "${longDescription}",
-    "url": "${pageUrl}",
+    "url": "${canonicalUrl}",
     "mainEntityOfPage": {
       "@type": "WebPage",
-      "@id": "${pageUrl}"
+      "@id": "${canonicalUrl}"
     },
     "datePublished": "${new Date(data.timestamp * 1000).toISOString()}",
     "dateModified": "${new Date().toISOString()}",
