@@ -750,29 +750,39 @@ async function handleRobotsTxt(request: Request, env: Env): Promise<Response> {
     console.log('🤖 Generating dynamic robots.txt...');
     
     // Get all pages that are marked as indexable (robots_index = 1)
-    // Use defensive query that handles missing columns gracefully
-    const query = `
-      SELECT page_id, timestamp
-      FROM detections 
-      WHERE (
-        CASE 
-          WHEN EXISTS(SELECT 1 FROM pragma_table_info('detections') WHERE name = 'robots_index')
-          THEN robots_index = 1
-          ELSE 0
-        END
-      )
-      AND (
-        CASE 
-          WHEN EXISTS(SELECT 1 FROM pragma_table_info('detections') WHERE name = 'deleted_at')
-          THEN deleted_at IS NULL
-          ELSE 1
-        END
-      )
-      ORDER BY timestamp DESC
-    `;
+    // Try the full query first, fall back to basic query if columns don't exist
+    let indexablePages: any[] = [];
     
-    const result = await env.DB.prepare(query).all();
-    const indexablePages = result.results || [];
+    try {
+      // Try with all columns (production environment)
+      const fullQuery = `
+        SELECT page_id, timestamp
+        FROM detections 
+        WHERE robots_index = 1 
+          AND deleted_at IS NULL 
+        ORDER BY timestamp DESC
+      `;
+      const result = await env.DB.prepare(fullQuery).all();
+      indexablePages = result.results || [];
+    } catch (error) {
+      console.log('Full query failed, trying fallback queries...', error);
+      
+      try {
+        // Try with just robots_index (some migrations applied)
+        const robotsQuery = `
+          SELECT page_id, timestamp
+          FROM detections 
+          WHERE robots_index = 1 
+          ORDER BY timestamp DESC
+        `;
+        const result = await env.DB.prepare(robotsQuery).all();
+        indexablePages = result.results || [];
+      } catch (robotsError) {
+        console.log('Robots query failed, using empty result...', robotsError);
+        // Neither column exists - return empty array (no indexable pages)
+        indexablePages = [];
+      }
+    }
     
     console.log(`📄 Found ${indexablePages.length} indexable pages for robots.txt`);
     
@@ -825,7 +835,7 @@ Disallow: /thumbnails/
 # Allow indexing of promoted detection pages (50+ views)
 # Individual page URLs are listed in the sitemap.xml
 
-Sitemap: ${baseUrl}/sitemap.xml`;
+Sitemap: ${baseUrl}/detection/sitemap.xml`;
   
   robotsContent += `\n\n# Generated automatically at ${new Date().toISOString()}`;
   robotsContent += `\n# Pages with 50+ views are automatically promoted for indexing`;
@@ -842,29 +852,39 @@ async function handleSitemapXml(request: Request, env: Env): Promise<Response> {
     console.log('🗺️ Generating dynamic sitemap.xml...');
     
     // Get all pages that are marked as indexable (robots_index = 1)
-    // Use defensive query that handles missing columns gracefully
-    const query = `
-      SELECT page_id, timestamp
-      FROM detections 
-      WHERE (
-        CASE 
-          WHEN EXISTS(SELECT 1 FROM pragma_table_info('detections') WHERE name = 'robots_index')
-          THEN robots_index = 1
-          ELSE 0
-        END
-      )
-      AND (
-        CASE 
-          WHEN EXISTS(SELECT 1 FROM pragma_table_info('detections') WHERE name = 'deleted_at')
-          THEN deleted_at IS NULL
-          ELSE 1
-        END
-      )
-      ORDER BY timestamp DESC
-    `;
+    // Try the full query first, fall back to basic query if columns don't exist
+    let indexablePages: any[] = [];
     
-    const result = await env.DB.prepare(query).all();
-    const indexablePages = result.results || [];
+    try {
+      // Try with all columns (production environment)
+      const fullQuery = `
+        SELECT page_id, timestamp
+        FROM detections 
+        WHERE robots_index = 1 
+          AND deleted_at IS NULL 
+        ORDER BY timestamp DESC
+      `;
+      const result = await env.DB.prepare(fullQuery).all();
+      indexablePages = result.results || [];
+    } catch (error) {
+      console.log('Full query failed, trying fallback queries...', error);
+      
+      try {
+        // Try with just robots_index (some migrations applied)
+        const robotsQuery = `
+          SELECT page_id, timestamp
+          FROM detections 
+          WHERE robots_index = 1 
+          ORDER BY timestamp DESC
+        `;
+        const result = await env.DB.prepare(robotsQuery).all();
+        indexablePages = result.results || [];
+      } catch (robotsError) {
+        console.log('Robots query failed, using empty result...', robotsError);
+        // Neither column exists - return empty array (no indexable pages)
+        indexablePages = [];
+      }
+    }
     
     console.log(`🗺️ Found ${indexablePages.length} indexable pages for sitemap.xml`);
     
@@ -1094,10 +1114,10 @@ export default {
             });
           }
         
-        case '/robots.txt':
+        case '/detection/robots.txt':
           return handleRobotsTxt(request, env);
           
-        case '/sitemap.xml':
+        case '/detection/sitemap.xml':
           return handleSitemapXml(request, env);
           
         default:
