@@ -2170,6 +2170,12 @@ function convertToBaseForm(word: string): string {
  * Extract meaningful keywords from tweet text for hashtag generation
  */
 function extractKeywordsFromText(tweetText: string): string[] {
+  // Profanity and offensive words to filter out (conservative list)
+  const profanityWords = new Set([
+    'fuck', 'fucking', 'shit', 'damn', 'hell', 'ass', 'sex', 'porn', 'xxx',
+    'bitch', 'bastard', 'piss', 'crap', 'whore', 'slut', 'nazi', 'hitler'
+  ]);
+
   // Common words to filter out (stop words)
   const stopWords = new Set([
     // Articles, conjunctions, prepositions
@@ -2215,8 +2221,11 @@ function extractKeywordsFromText(tweetText: string): string[] {
   if (mentionMatches) {
     mentionMatches.forEach(mention => {
       const word = mention.substring(1); // Remove the @
+      const lowerWord = word.toLowerCase();
       const baseForm = convertToBaseForm(word);
-      if (word.length >= 3 && word.length <= 15 && !stopWords.has(baseForm)) {
+      if (word.length >= 3 && word.length <= 15 && 
+          !stopWords.has(lowerWord) && !profanityWords.has(lowerWord) &&
+          !stopWords.has(baseForm) && !profanityWords.has(baseForm)) {
         mentionWords.push(baseForm);
       }
     });
@@ -2257,10 +2266,12 @@ function extractKeywordsFromText(tweetText: string): string[] {
           continue; // Skip first word of sentences after the first one
         }
         
-        // For capitalized words (proper nouns), check base form against stop words but keep original word
+        // For capitalized words (proper nouns), check both original and base form against filters
+        const lowerWord = word.toLowerCase();
         const baseForm = convertToBaseForm(word);
-        if (!stopWords.has(baseForm)) {
-          capitalizedWords.push(word.toLowerCase()); // Keep original proper noun, just lowercase it
+        if (!stopWords.has(lowerWord) && !profanityWords.has(lowerWord) &&
+            !stopWords.has(baseForm) && !profanityWords.has(baseForm)) {
+          capitalizedWords.push(lowerWord); // Keep original proper noun, just lowercase it
         }
       }
     }
@@ -2295,7 +2306,8 @@ function extractKeywordsFromText(tweetText: string): string[] {
       const baseForm = convertToBaseForm(word);
       return word.length >= 3 && // At least 3 characters
         word.length <= 15 && // Not too long
-        !stopWords.has(baseForm) && // Not a stop word (check base form)
+        !stopWords.has(word) && !profanityWords.has(word) && // Check original word first
+        !stopWords.has(baseForm) && !profanityWords.has(baseForm) && // Then check base form
         !/^\d+$/.test(word) && // Not just numbers
         /^[a-z]+$/.test(word); // Only letters
     });
@@ -4396,6 +4408,16 @@ function generateErrorPageHTML(errorCode: number, title: string, message: string
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title} | TruthScan</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔍</text></svg>">
+  
+  <!-- Google Analytics -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-30FFL7TS9H"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-30FFL7TS9H');
+  </script>
+  
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -4837,7 +4859,16 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
   <meta name="generator" content="TruthScan AI Detection Engine">
   <meta name="rating" content="general">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: https:; img-src 'self' data: https: blob:; script-src 'self' 'unsafe-inline';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: https:; img-src 'self' data: https: blob:; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com;">
+  
+  <!-- Google Analytics -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-30FFL7TS9H"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-30FFL7TS9H');
+  </script>
   
   <!-- Article and Content Meta Tags -->
   <meta property="article:author" content="TruthScan">
