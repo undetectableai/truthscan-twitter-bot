@@ -750,11 +750,24 @@ async function handleRobotsTxt(request: Request, env: Env): Promise<Response> {
     console.log('🤖 Generating dynamic robots.txt...');
     
     // Get all pages that are marked as indexable (robots_index = 1)
+    // Use defensive query that handles missing columns gracefully
     const query = `
       SELECT page_id, timestamp
       FROM detections 
-      WHERE robots_index = 1 
-        AND deleted_at IS NULL 
+      WHERE (
+        CASE 
+          WHEN EXISTS(SELECT 1 FROM pragma_table_info('detections') WHERE name = 'robots_index')
+          THEN robots_index = 1
+          ELSE 0
+        END
+      )
+      AND (
+        CASE 
+          WHEN EXISTS(SELECT 1 FROM pragma_table_info('detections') WHERE name = 'deleted_at')
+          THEN deleted_at IS NULL
+          ELSE 1
+        END
+      )
       ORDER BY timestamp DESC
     `;
     
@@ -797,11 +810,11 @@ Disallow: /webhook/
 }
 
 /**
- * Generate robots.txt content with dynamic sitemap
+ * Generate robots.txt content with sitemap reference
  */
-function generateRobotsTxtContent(indexablePages: any[], request: Request): string {
-  const url = new URL(request.url);
-  const baseUrl = `${url.protocol}//${url.host}`;
+function generateRobotsTxtContent(indexablePages: any[], _request: Request): string {
+  // Always use the production domain
+  const baseUrl = 'https://truthscan.com';
   
   let robotsContent = `User-agent: *
 Disallow: /api/
@@ -810,25 +823,13 @@ Disallow: /images/
 Disallow: /thumbnails/
 
 # Allow indexing of promoted detection pages (50+ views)
-`;
+# Individual page URLs are listed in the sitemap.xml
 
-  // If we have indexable pages, add them explicitly
-  if (indexablePages.length > 0) {
-    robotsContent += `\n# Explicitly allowed detection pages:\n`;
-    
-    for (const page of indexablePages) {
-      const pageId = (page as { page_id: string }).page_id;
-      robotsContent += `Allow: /d/${pageId}\n`;
-    }
-    
-    // Add dynamic sitemap reference
-    robotsContent += `\n# Dynamic sitemap\nSitemap: ${baseUrl}/sitemap.xml\n`;
-  } else {
-    robotsContent += `\n# No pages currently promoted for indexing\n`;
-  }
+Sitemap: ${baseUrl}/sitemap.xml`;
   
-  robotsContent += `\n# Generated automatically at ${new Date().toISOString()}`;
+  robotsContent += `\n\n# Generated automatically at ${new Date().toISOString()}`;
   robotsContent += `\n# Pages with 50+ views are automatically promoted for indexing`;
+  robotsContent += `\n# Currently ${indexablePages.length} page(s) are indexed`;
   
   return robotsContent;
 }
@@ -841,11 +842,24 @@ async function handleSitemapXml(request: Request, env: Env): Promise<Response> {
     console.log('🗺️ Generating dynamic sitemap.xml...');
     
     // Get all pages that are marked as indexable (robots_index = 1)
+    // Use defensive query that handles missing columns gracefully
     const query = `
       SELECT page_id, timestamp
       FROM detections 
-      WHERE robots_index = 1 
-        AND deleted_at IS NULL 
+      WHERE (
+        CASE 
+          WHEN EXISTS(SELECT 1 FROM pragma_table_info('detections') WHERE name = 'robots_index')
+          THEN robots_index = 1
+          ELSE 0
+        END
+      )
+      AND (
+        CASE 
+          WHEN EXISTS(SELECT 1 FROM pragma_table_info('detections') WHERE name = 'deleted_at')
+          THEN deleted_at IS NULL
+          ELSE 1
+        END
+      )
       ORDER BY timestamp DESC
     `;
     
@@ -888,9 +902,9 @@ async function handleSitemapXml(request: Request, env: Env): Promise<Response> {
 /**
  * Generate sitemap.xml content for indexable pages
  */
-function generateSitemapXmlContent(indexablePages: any[], request: Request): string {
-  const url = new URL(request.url);
-  const baseUrl = `${url.protocol}//${url.host}`;
+function generateSitemapXmlContent(indexablePages: any[], _request: Request): string {
+  // Always use the production domain
+  const baseUrl = 'https://truthscan.com';
   
   let sitemapContent = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`;
@@ -904,7 +918,7 @@ function generateSitemapXmlContent(indexablePages: any[], request: Request): str
     <priority>1.0</priority>
   </url>`;
   
-  // Add each indexable detection page
+  // Add each indexable detection page (only pages with 50+ views)
   for (const page of indexablePages) {
     const pageData = page as { page_id: string; timestamp: string };
     const pageId = pageData.page_id;
