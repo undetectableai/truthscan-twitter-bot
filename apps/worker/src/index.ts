@@ -51,6 +51,9 @@ interface Env {
   // Cloudflare D1 database binding
   DB: D1Database;
   
+  // Static Assets binding
+  ASSETS: Fetcher;
+  
   // Twitter API credentials (stored as Wrangler secrets)
   TWITTER_API_KEY: string;
   TWITTER_API_KEY_SECRET: string;
@@ -695,9 +698,9 @@ export default {
             return handleDetectionPage(request, env);
           }
           
-          // Handle static assets requests
+          // Handle static assets requests using Cloudflare Workers Static Assets
           if (url.pathname.startsWith('/assets/')) {
-            return handleAssetRequest(request);
+            return env.ASSETS.fetch(request);
           }
             return new Response('Truthscan Twitter Bot API\nEndpoints:\n- GET/POST /webhook/twitter (Twitter webhook)\n- GET /api/detections (Dashboard API, protected)\n- GET /api/test-db (Database test, protected)\n- GET /api/test-shorturl (Short URL generation test, protected)\n- GET /d/:id (Public detection results page)', { 
               status: 200,
@@ -3413,35 +3416,8 @@ async function handleClearCache(_request: Request, _env: Env): Promise<Response>
   }
 }
 
-/**
- * Handle static asset requests like logo images
- */
-async function handleAssetRequest(request: Request): Promise<Response> {
-  const url = new URL(request.url);
-  
-  // Only serve the logo for now
-  if (url.pathname === '/assets/logo.png') {
-    try {
-      // For now, use a fallback to TruthScan favicon until we set up proper asset serving
-      // In a production Cloudflare Worker, you would typically use Workers Static Assets
-      const logoResponse = await fetch('https://truthscan.com/favicon.ico');
-      if (logoResponse.ok) {
-        return new Response(logoResponse.body, {
-          status: 200,
-          headers: {
-            'Content-Type': 'image/png',
-            'Cache-Control': 'public, max-age=86400',
-            'Access-Control-Allow-Origin': '*'
-          }
-        });
-      }
-    } catch (error) {
-      console.error('Error serving logo:', error);
-    }
-  }
-  
-  return new Response('Asset not found', { status: 404 });
-}
+
+
 
 /**
  * Handle image requests (/images/:id) - Proxy from Twitter CDN
@@ -4874,15 +4850,20 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     }
     
     function shareOnLinkedIn() {
-      // LinkedIn sharing with proper parameters
-      const params = new URLSearchParams({
-        url: shareData.url,
-        mini: 'true',
-        title: shareData.title,
-        summary: shareData.text
-      });
-      const url = 'https://www.linkedin.com/sharing/share-offsite/?' + params.toString();
-      window.open(url, 'linkedin-share', 'width=626,height=675,scrollbars=no,resizable=no');
+      // LinkedIn sharing using 2025 best practices
+      // Opens LinkedIn's compose interface where users paste the URL manually
+      // This follows LinkedIn's official recommendation for URL sharing
+      const url = 'https://www.linkedin.com/feed/';
+      const newWindow = window.open(url, 'linkedin-share', 'width=626,height=675,scrollbars=no,resizable=no');
+      
+      // Copy URL to clipboard for easy pasting
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(shareData.url).then(() => {
+          // URL copied successfully - user can paste it in LinkedIn
+        }).catch(() => {
+          // Fallback: no clipboard access
+        });
+      }
     }
     
     function copyLink() {
