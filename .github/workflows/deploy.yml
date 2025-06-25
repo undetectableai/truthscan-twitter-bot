@@ -28,19 +28,13 @@ jobs:
           cache: "pnpm"
 
       - name: Install dependencies
-        run: |
-          cd apps/worker
-          pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Run linting
-        run: |
-          cd apps/worker
-          pnpm run lint
+        run: pnpm run lint
 
-      - name: Run TypeScript check
-        run: |
-          cd apps/worker
-          pnpm run type-check
+      - name: Run build check
+        run: pnpm run build:check
 
   deploy:
     runs-on: ubuntu-latest
@@ -67,9 +61,12 @@ jobs:
           cache: "pnpm"
 
       - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build dashboard
         run: |
-          cd apps/worker
-          pnpm install --frozen-lockfile
+          cd apps/dashboard
+          pnpm run build
 
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
@@ -79,17 +76,17 @@ jobs:
           workingDirectory: "apps/worker"
           secrets: |
             TWITTER_BEARER_TOKEN
-            TWITTER_CONSUMER_KEY
-            TWITTER_CONSUMER_SECRET
+            TWITTER_API_KEY
+            TWITTER_API_KEY_SECRET
             TWITTER_ACCESS_TOKEN
             TWITTER_ACCESS_TOKEN_SECRET
-            UNDETECTABLE_AI_API_KEY
-            TWITTER_WEBHOOK_SECRET
+            AI_DETECTION_API_KEY
+            TWITTER_BOT_USERNAME
         env:
           TWITTER_BEARER_TOKEN: ${{ secrets.TWITTER_BEARER_TOKEN }}
-          TWITTER_CONSUMER_KEY: ${{ secrets.TWITTER_CONSUMER_KEY }}
-          TWITTER_CONSUMER_SECRET: ${{ secrets.TWITTER_CONSUMER_SECRET }}
+          TWITTER_API_KEY: ${{ secrets.TWITTER_CONSUMER_KEY }}
+          TWITTER_API_KEY_SECRET: ${{ secrets.TWITTER_CONSUMER_SECRET }}
           TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
           TWITTER_ACCESS_TOKEN_SECRET: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
-          UNDETECTABLE_AI_API_KEY: ${{ secrets.UNDETECTABLE_AI_API_KEY }}
-          TWITTER_WEBHOOK_SECRET: ${{ secrets.TWITTER_WEBHOOK_SECRET }} 
+          AI_DETECTION_API_KEY: ${{ secrets.UNDETECTABLE_AI_API_KEY }}
+          TWITTER_BOT_USERNAME: ${{ secrets.TWITTER_BOT_USERNAME }} 
