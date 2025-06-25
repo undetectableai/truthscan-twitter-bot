@@ -699,10 +699,10 @@ export default {
           }
           
           // Handle static assets requests using Cloudflare Workers Static Assets
-          if (url.pathname.startsWith('/assets/')) {
+          if (url.pathname.startsWith('/assets/') || url.pathname === '/logo.png') {
             return env.ASSETS.fetch(request);
           }
-            return new Response('Truthscan Twitter Bot API\nEndpoints:\n- GET/POST /webhook/twitter (Twitter webhook)\n- GET /api/detections (Dashboard API, protected)\n- GET /api/test-db (Database test, protected)\n- GET /api/test-shorturl (Short URL generation test, protected)\n- GET /d/:id (Public detection results page)', { 
+            return new Response('Truthscan Twitter Bot API\nEndpoints:\n- GET/POST /webhook/twitter (Twitter webhook)\n- GET /api/detections (Dashboard API, protected)\n- GET /api/test-db (Database test, protected)\n- GET /api/test-shorturl (Short URL generation test, protected)\n- GET /api/test-reply-formatting (Reply formatting test, protected)\n- GET /api/test-database-updates (Database updates test, protected)\n- GET /api/generate-monitoring-test-data (Generate monitoring test data, protected)\n- GET /api/validate-monitoring-system (Validate monitoring system, protected)\n- GET /api/clear-cache (Clear cache, protected)\n- GET /api/monitoring/logs (Monitoring logs, protected)\n- GET /api/monitoring/page-views (Monitoring page views, protected)\n- GET /api/monitoring/metrics (Monitoring metrics, protected)\n- GET /api/monitoring/dashboard (Monitoring dashboard, protected)\n- GET /d/:id (Public detection results page)', { 
               status: 200,
               headers: { 'Content-Type': 'text/plain' }
             });
@@ -4187,6 +4187,33 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     }
     
     :root {
+      /* Spacing Scale - 8px Grid System */
+      --space-1: 0.25rem;  /* 4px */
+      --space-2: 0.5rem;   /* 8px */
+      --space-3: 0.75rem;  /* 12px */
+      --space-4: 1rem;     /* 16px */
+      --space-5: 1.25rem;  /* 20px */
+      --space-6: 1.5rem;   /* 24px */
+      --space-8: 2rem;     /* 32px */
+      --space-10: 2.5rem;  /* 40px */
+      --space-12: 3rem;    /* 48px */
+      --space-16: 4rem;    /* 64px */
+      --space-20: 5rem;    /* 80px */
+      
+      /* Semantic Spacing */
+      --section-gap: var(--space-8);      /* 32px - Between major sections */
+      --content-gap: var(--space-6);      /* 24px - Between content blocks */
+      --element-gap: var(--space-4);      /* 16px - Between related elements */
+      --tight-gap: var(--space-3);        /* 12px - Between closely related items */
+      
+      /* Legacy support */
+      --spacing-xs: var(--space-2);
+      --spacing-sm: var(--space-4);
+      --spacing-md: var(--space-6);
+      --spacing-lg: var(--space-8);
+      --spacing-xl: var(--space-12);
+      
+      /* Color System */
       --primary-color: #0F172A;
       --secondary-color: #1E293B;
       --text-color: #334155;
@@ -4198,17 +4225,12 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       --uncertain-color: #F59E0B;
       --human-color: #10B981;
       --accent-blue: #3B82F6;
-      --spacing-xs: 0.5rem;
-      --spacing-sm: 1rem;
-      --spacing-md: 1.5rem;
-      --spacing-lg: 2rem;
-      --spacing-xl: 3rem;
-      --border-radius: 1rem;
-      --border-radius-lg: 1.5rem;
+      
+      /* Design tokens */
+      --border-radius: 0.5rem;
       --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
       --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
       --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-      --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
     }
     
     body {
@@ -4224,40 +4246,38 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     
     /* Header */
     .page-header {
-      text-align: center;
-      padding: calc(var(--spacing-xl) * 0.7) var(--spacing-sm) calc(var(--spacing-xl) * 0.7);
-      margin-bottom: 0;
+      background: var(--background-white);
+      border-bottom: 1px solid var(--border-color);
+      padding: var(--space-8) var(--space-4);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      box-shadow: var(--shadow-sm);
     }
     
     .header-link {
-      display: inline-block;
       text-decoration: none;
-      transition: opacity 0.2s ease;
-    }
-    
-    .header-link:hover {
-      opacity: 0.8;
+      color: inherit;
+      display: block;
     }
     
     .header-content {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 1rem;
-      max-width: 900px;
+      max-width: 1200px;
       margin: 0 auto;
-    }
-    
-    .logo-container {
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
+      gap: var(--space-3);
     }
     
     .logo-image {
-      display: block;
+      display: inline-block;
       max-width: none;
       max-height: none;
+      margin-right: 0.5rem;
+      width: 38px;
+      height: 29px;
+      vertical-align: middle;
     }
     
     .header-title {
@@ -4278,11 +4298,8 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       color: transparent;
-      transition: all 0.2s ease;
-    }
-    
-    .header-link:hover .header-title-truthscan {
-      background: linear-gradient(to right, #1d4ed8, #1e40af, #1e3a8a);
+      display: inline-flex;
+      align-items: center;
     }
     
     .header-title-rest {
@@ -4295,29 +4312,24 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     
     /* Main Container */
     .container {
-      max-width: 900px;
+      max-width: 1200px;
       margin: 0 auto;
-      padding: var(--spacing-lg) var(--spacing-sm);
-      flex: 1;
+      padding: var(--section-gap) var(--space-4);
+      min-height: calc(100vh - 200px);
     }
     
-    
-    /* Main Content Container */
+    /* Main Content Area */
     .main-content {
-      margin-bottom: var(--spacing-xl);
+      margin-bottom: var(--section-gap);
     }
     
-    /* Detection Row - Horizontal Layout */
+    /* Detection Row - Responsive Layout */
     .detection-row {
       display: flex;
-      flex-direction: row;
-      align-items: flex-start;
-      gap: var(--spacing-xl);
-      margin-bottom: var(--spacing-xl);
-      width: 100%;
-      max-width: 1400px; /* Prevent too wide on very large screens */
-      margin-left: auto;
-      margin-right: auto;
+      flex-direction: column;
+      gap: var(--content-gap);
+      align-items: center;
+      margin-bottom: var(--section-gap);
     }
     
     .detection-row:last-child {
@@ -4326,69 +4338,79 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     
     /* Image Section - Left Side */
     .image-section {
-      flex-shrink: 0;
-      flex-basis: 500px; /* Fixed width for consistency */
+      width: 100%;
       max-width: 500px;
+      margin: 0;
+      padding: 0;
     }
     
     .analyzed-image {
-      width: 500px;
-      height: 500px;
+      width: 100%;
+      height: auto;
+      aspect-ratio: 1;
       object-fit: cover;
       object-position: center;
-      border-radius: 0; /* Square corners */
-      /* Blue drop shadow similar to TruthScan style - Stronger visibility */
-      box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.4), 
-                  0 4px 6px -2px rgba(59, 130, 246, 0.3),
-                  0 0 0 1px rgba(59, 130, 246, 0.15);
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow-lg);
       transition: transform 0.3s ease, box-shadow 0.3s ease;
+      display: block;
+      margin: 0;
+      padding: 0;
     }
     
     .analyzed-image:hover {
       transform: translateY(-2px);
-      box-shadow: 0 15px 30px -5px rgba(59, 130, 246, 0.5), 
-                  0 6px 8px -2px rgba(59, 130, 246, 0.4),
-                  0 0 0 1px rgba(59, 130, 246, 0.2);
+      box-shadow: 0 15px 30px -5px rgba(59, 130, 246, 0.3), 
+                  0 6px 8px -2px rgba(59, 130, 246, 0.2);
     }
     
     .image-fallback {
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 400px;
-      height: 500px;
-      background: linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%);
+      width: 100%;
+      aspect-ratio: 1;
+      max-width: 500px;
+      background: var(--background-gradient);
       color: var(--text-muted);
       font-size: 1.125rem;
       font-weight: 500;
-      border-radius: 0; /* Square corners */
-      box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.4), 
-                  0 4px 6px -2px rgba(59, 130, 246, 0.3),
-                  0 0 0 1px rgba(59, 130, 246, 0.15);
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow-lg);
+      margin: 0;
+      padding: 0;
     }
     
     /* Results Section - Right Side */
     .results-section {
-      flex: 1;
-      min-width: 0; /* Prevents flex item from overflowing */
+      width: 100%;
+      max-width: 500px;
+      text-align: center;
     }
     
     .score-metrics {
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-      margin-bottom: var(--spacing-xl);
+      background: var(--background-white);
+      border: 1px solid var(--border-color);
+      border-radius: var(--border-radius);
+      padding: var(--space-6);
+      margin-bottom: var(--content-gap);
+      box-shadow: var(--shadow-sm);
     }
     
     .metric-item {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: calc(var(--spacing-lg) * 0.15) 0;
+      padding: var(--space-3) 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .metric-item:last-child {
+      border-bottom: none;
     }
     
     .metric-label {
-      font-size: 0.8rem;
+      font-size: 0.875rem;
       font-weight: 600;
       color: var(--text-muted);
       text-transform: uppercase;
@@ -4396,23 +4418,17 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     }
     
     .metric-value {
-      font-size: 1.05rem;
+      font-size: 1.125rem;
       font-weight: 700;
       color: var(--primary-color);
     }
     
     .probability-value {
-      font-size: 1.4rem;
+      font-size: 1.5rem;
       font-weight: 900;
-      background: linear-gradient(135deg, ${scoreColor} 0%, ${scoreColor}CC 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
     }
     
     .source-link-container {
-      margin-top: var(--spacing-lg);
-      padding-top: var(--spacing-lg);
       text-align: center;
     }
     
@@ -4421,7 +4437,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     .source-link {
       display: inline-flex;
       align-items: center;
-      gap: var(--spacing-sm);
+      gap: var(--spacing-md);
       color: var(--accent-blue);
       text-decoration: none;
       font-weight: 600;
@@ -4444,8 +4460,6 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     
     /* Social Sharing Section - In Right Column */
     .share-section {
-      margin-top: var(--spacing-lg);
-      padding-top: var(--spacing-lg);
     }
     
     .share-row {
@@ -4536,21 +4550,53 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='white'%3E%3Cpath stroke='white' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round' d='M20 6L9 17l-5-5'/%3E%3C/svg%3E");
     }
     
+    /* Premium CTA Button */
+    .premium-cta {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-2);
+      background: linear-gradient(to right, #1e40af, #2563eb);
+      color: white;
+      font-weight: 700;
+      text-decoration: none;
+      border-radius: 9999px;
+      box-shadow: var(--shadow-md);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      padding: var(--space-4) var(--space-8);
+      font-size: 1.125rem;
+      border: none;
+      cursor: pointer;
+    }
+    
+    .premium-cta:hover {
+      background: linear-gradient(to right, #1e3a8a, #1d4ed8);
+      box-shadow: var(--shadow-lg);
+      transform: translateY(-1px);
+    }
+    
+    .cta-icon {
+      width: 1.25rem;
+      height: 1.25rem;
+      flex-shrink: 0;
+    }
+    
     /* Footer */
     .footer {
-      padding: var(--spacing-xl) var(--spacing-sm);
+      margin-top: var(--section-gap);
+      padding: var(--space-8) var(--space-4);
       text-align: center;
       color: var(--text-muted);
       font-size: 0.875rem;
-      margin-top: auto;
-      background: #FFFFFF;
+      border-top: 1px solid var(--border-color);
+      background: var(--background-white);
     }
     
     .footer a {
       color: var(--accent-blue);
       text-decoration: none;
       font-weight: 600;
-      transition: all 0.2s ease;
+      transition: color 0.2s ease;
     }
     
     .footer a:hover {
@@ -4604,6 +4650,11 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
         height: 52px;
         background-size: 26px 26px;
       }
+      
+      .premium-cta {
+        padding: 1rem 3rem;
+        font-size: 1.25rem;
+      }
     }
     
     /* Large Desktop Optimization */
@@ -4649,32 +4700,96 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       .page-header {
         padding: calc(var(--spacing-lg) * 0.7) var(--spacing-sm) calc(var(--spacing-lg) * 0.7);
         margin-bottom: 0;
+        text-align: center;
+      }
+      
+      .container {
+        padding: calc(var(--spacing-lg) * 0.7) var(--spacing-sm);
+      }
+      
+      .main-content {
+        margin-bottom: 0; /* Remove margin to fix spacing */
+      }
+      
+      .detection-row {
+        margin-bottom: calc(var(--spacing-lg) * 0.7);
+      }
+      
+      .results-section .score-metrics {
+        margin-bottom: calc(var(--spacing-lg) * 0.7) !important;
+      }
+      
+      .premium-cta {
+        margin-bottom: calc(var(--spacing-lg) * 0.7);
+      }
+      
+      /* Override the inline margin styles on mobile */
+      div[style*="margin-top: 2rem"] {
+        margin-top: calc(var(--spacing-lg) * 0.7) !important;
+      }
+      
+      div[style*="margin-bottom: 2rem"] {
+        margin-bottom: calc(var(--spacing-lg) * 0.7) !important;
       }
       
       .header-content {
         flex-direction: column;
-        gap: var(--spacing-md);
+        gap: 0;
+        align-items: center;
+      }
+      
+      .logo-image {
+        width: 27px;
+        height: 20px;
+        margin-right: 0;
       }
       
       .header-title {
         font-size: 1.5rem;
         line-height: 2rem;
         text-align: center;
-        gap: 0.25rem;
+        gap: 0;
+        flex-direction: column;
+        align-items: center;
+        width: 100%;
+      }
+      
+      .header-title-truthscan {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+        justify-content: center;
+      }
+      
+      .header-title-rest {
+        margin-top: 0.25rem;
+        line-height: 1.25;
       }
       
 
       
       /* Stack images and scores vertically on mobile */
+      .detection-row,
+      .main-content,
+      .score-metrics,
+      .cta-container,
+      .source-link-container {
+        margin-bottom: calc(var(--spacing-lg) * 0.7);
+      }
+      
       .detection-row {
         flex-direction: column;
         align-items: center;
-        gap: var(--spacing-lg);
+        gap: calc(var(--spacing-lg) * 0.7);
+        margin-bottom: 0; /* Remove margin-bottom since gap provides the spacing */
       }
       
       .analyzed-image {
         height: 300px; /* Smaller on mobile */
         max-width: 100%;
+        margin: 0;
+        padding: 0;
+        display: block;
       }
       
       .image-fallback {
@@ -4704,6 +4819,22 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
         width: 44px;
         height: 44px;
         background-size: 22px 22px;
+      }
+      
+      .premium-cta {
+        padding: 0.5rem 1.5rem;
+        font-size: 1rem;
+        margin-top: calc(var(--spacing-lg) * 0.7);
+        margin-bottom: calc(var(--spacing-lg) * 0.7);
+      }
+      
+      .source-link-container {
+        margin-bottom: calc(var(--spacing-lg) * 0.7);
+      }
+      
+      .image-section {
+        margin: 0 !important;
+        padding: 0 !important;
       }
     }
     
@@ -4737,14 +4868,12 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
   <header class="page-header">
     <a href="https://truthscan.com/ai-image-detector" class="header-link" target="_blank" rel="noopener noreferrer">
       <div class="header-content">
-        <!-- TruthScan Logo -->
-        <div class="logo-container">
-          <img src="/assets/logo.png" alt="TruthScan Logo" class="logo-image" width="48" height="36">
-        </div>
-        
         <!-- Header Title with Gradient -->
         <h1 class="header-title">
-          <span class="header-title-truthscan">TruthScan</span>
+          <span class="header-title-truthscan">
+            <img src="/logo.png" alt="TruthScan Logo" class="logo-image" width="38" height="29">
+            TruthScan
+          </span>
           <span class="header-title-rest">AI Image Detection Results</span>
         </h1>
       </div>
@@ -4791,6 +4920,16 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
               <div class="metric-label">Classification</div>
               <div class="metric-value classification-value" style="color: ${scoreColor};">${classification}</div>
             </div>
+          </div>
+          
+          <!-- Premium CTA Button -->
+          <div class="cta-container">
+            <a href="https://truthscan.com/ai-image-detector" class="premium-cta" target="_blank" rel="noopener noreferrer">
+              Test Another Image
+              <svg class="cta-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+              </svg>
+            </a>
           </div>
           
           <!-- Original Tweet Link -->
