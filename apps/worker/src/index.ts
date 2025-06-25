@@ -4138,6 +4138,9 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
   // Accessibility descriptions for images
   const imageAltText = `AI detection result showing ${scorePercentage}% probability of artificial intelligence generation`;
   
+  // Determine robots directive based on database setting (defaults to noindex if not set)
+  const robotsDirective = data.robots_index ? 'index, follow' : 'noindex, nofollow';
+  
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -4147,7 +4150,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
   
   <!-- Enhanced SEO Meta Tags -->
   <meta name="description" content="${longDescription}">
-  <meta name="robots" content="index, follow">
+  <meta name="robots" content="${robotsDirective}">
   <meta name="keywords" content="AI detection, artificial intelligence, image analysis, TruthScan, ${classification.toLowerCase()}">
   <meta name="author" content="TruthScan">
   <link rel="canonical" href="${pageUrl}">
@@ -5271,7 +5274,7 @@ async function getDetectionByPageId(pageId: string, env: Env): Promise<{ data: a
       SELECT 
         id, tweet_id, timestamp, image_url, detection_score, twitter_handle, 
         response_tweet_id, processing_time_ms, api_provider, page_id, 
-        created_at, updated_at
+        created_at, updated_at, robots_index
       FROM detections 
       WHERE page_id = ? 
       LIMIT 1
