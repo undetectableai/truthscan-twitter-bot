@@ -4121,6 +4121,9 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
   // Dynamic domain detection from current request
   const currentDomain = new URL(request.url).origin;
   
+  // Backend domain for asset URLs (always use the worker domain for assets)
+  const backendDomain = "https://truthscan-twitter-bot.bjuhasz08.workers.dev";
+  
   // Current page URL for sharing
   const pageUrl = `${currentDomain}/d/${pageId}`;
   
@@ -4208,7 +4211,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
   <meta http-equiv="Cache-Control" content="public, max-age=3600">
       <link rel="dns-prefetch" href="//truthscan.com">
     <link rel="preconnect" href="https://truthscan.com">
-  <link rel="prefetch" href="/thumbnails/${pageId}">
+  <link rel="prefetch" href="${backendDomain}/thumbnails/${pageId}">
   
   <!-- Favicon -->
   <link rel="icon" href="https://truthscan.com/favicon.ico">
@@ -5069,7 +5072,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
         <!-- Header Title with Gradient -->
         <h1 class="header-title">
           <span class="header-title-truthscan">
-            <img src="/logo.png" alt="TruthScan Logo" class="logo-image" width="38" height="29">
+            <img src="${backendDomain}/logo.png" alt="TruthScan Logo" class="logo-image" width="38" height="29">
             TruthScan
           </span>
           <span class="header-title-rest">AI Image Detection Results</span>
