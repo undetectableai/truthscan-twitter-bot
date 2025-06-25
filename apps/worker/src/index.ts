@@ -743,6 +743,189 @@ async function pollTwitterMentionsIncremental(
 }
 
 /**
+ * Generate dynamic robots.txt based on indexable pages
+ */
+async function handleRobotsTxt(request: Request, env: Env): Promise<Response> {
+  try {
+    console.log('🤖 Generating dynamic robots.txt...');
+    
+    // Get all pages that are marked as indexable (robots_index = 1)
+    const query = `
+      SELECT page_id, timestamp
+      FROM detections 
+      WHERE robots_index = 1 
+        AND deleted_at IS NULL 
+      ORDER BY timestamp DESC
+    `;
+    
+    const result = await env.DB.prepare(query).all();
+    const indexablePages = result.results || [];
+    
+    console.log(`📄 Found ${indexablePages.length} indexable pages for robots.txt`);
+    
+    // Generate dynamic robots.txt content
+    const robotsTxtContent = generateRobotsTxtContent(indexablePages, request);
+    
+    // Set appropriate caching headers (cache for 1 hour)
+    const headers = new Headers({
+      'Content-Type': 'text/plain',
+      'Cache-Control': 'public, max-age=3600, s-maxage=3600',
+      'Last-Modified': new Date().toUTCString(),
+    });
+    
+    return new Response(robotsTxtContent, {
+      status: 200,
+      headers: headers
+    });
+    
+  } catch (error) {
+    console.error('❌ Error generating robots.txt:', error);
+    
+    // Return a basic robots.txt if database query fails
+    const fallbackContent = `User-agent: *
+Disallow: /api/
+Disallow: /webhook/
+
+# This robots.txt is dynamically generated based on indexable content.
+# Error occurred - showing fallback version.`;
+    
+    return new Response(fallbackContent, {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain' }
+    });
+  }
+}
+
+/**
+ * Generate robots.txt content with dynamic sitemap
+ */
+function generateRobotsTxtContent(indexablePages: any[], request: Request): string {
+  const url = new URL(request.url);
+  const baseUrl = `${url.protocol}//${url.host}`;
+  
+  let robotsContent = `User-agent: *
+Disallow: /api/
+Disallow: /webhook/
+Disallow: /images/
+Disallow: /thumbnails/
+
+# Allow indexing of promoted detection pages (50+ views)
+`;
+
+  // If we have indexable pages, add them explicitly
+  if (indexablePages.length > 0) {
+    robotsContent += `\n# Explicitly allowed detection pages:\n`;
+    
+    for (const page of indexablePages) {
+      const pageId = (page as { page_id: string }).page_id;
+      robotsContent += `Allow: /d/${pageId}\n`;
+    }
+    
+    // Add dynamic sitemap reference
+    robotsContent += `\n# Dynamic sitemap\nSitemap: ${baseUrl}/sitemap.xml\n`;
+  } else {
+    robotsContent += `\n# No pages currently promoted for indexing\n`;
+  }
+  
+  robotsContent += `\n# Generated automatically at ${new Date().toISOString()}`;
+  robotsContent += `\n# Pages with 50+ views are automatically promoted for indexing`;
+  
+  return robotsContent;
+}
+
+/**
+ * Generate dynamic sitemap.xml based on indexable pages
+ */
+async function handleSitemapXml(request: Request, env: Env): Promise<Response> {
+  try {
+    console.log('🗺️ Generating dynamic sitemap.xml...');
+    
+    // Get all pages that are marked as indexable (robots_index = 1)
+    const query = `
+      SELECT page_id, timestamp
+      FROM detections 
+      WHERE robots_index = 1 
+        AND deleted_at IS NULL 
+      ORDER BY timestamp DESC
+    `;
+    
+    const result = await env.DB.prepare(query).all();
+    const indexablePages = result.results || [];
+    
+    console.log(`🗺️ Found ${indexablePages.length} indexable pages for sitemap.xml`);
+    
+    // Generate dynamic sitemap.xml content
+    const sitemapContent = generateSitemapXmlContent(indexablePages, request);
+    
+    // Set appropriate caching headers (cache for 1 hour)
+    const headers = new Headers({
+      'Content-Type': 'application/xml',
+      'Cache-Control': 'public, max-age=3600, s-maxage=3600',
+      'Last-Modified': new Date().toUTCString(),
+    });
+    
+    return new Response(sitemapContent, {
+      status: 200,
+      headers: headers
+    });
+    
+  } catch (error) {
+    console.error('❌ Error generating sitemap.xml:', error);
+    
+    // Return an empty sitemap if database query fails
+    const fallbackContent = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <!-- Error occurred generating sitemap - showing empty version -->
+</urlset>`;
+    
+    return new Response(fallbackContent, {
+      status: 200,
+      headers: { 'Content-Type': 'application/xml' }
+    });
+  }
+}
+
+/**
+ * Generate sitemap.xml content for indexable pages
+ */
+function generateSitemapXmlContent(indexablePages: any[], request: Request): string {
+  const url = new URL(request.url);
+  const baseUrl = `${url.protocol}//${url.host}`;
+  
+  let sitemapContent = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`;
+
+  // Add homepage
+  sitemapContent += `
+  <url>
+    <loc>${baseUrl}/</loc>
+    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>`;
+  
+  // Add each indexable detection page
+  for (const page of indexablePages) {
+    const pageData = page as { page_id: string; timestamp: string };
+    const pageId = pageData.page_id;
+    const timestamp = new Date(pageData.timestamp);
+    
+    sitemapContent += `
+  <url>
+    <loc>${baseUrl}/d/${pageId}</loc>
+    <lastmod>${timestamp.toISOString().split('T')[0]}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>`;
+  }
+  
+  sitemapContent += `
+</urlset>`;
+
+  return sitemapContent;
+}
+
+/**
  * Handle Twitter polling (runs every minute)
  */
 async function handleTwitterPolling(env: Env, ctx: ExecutionContext): Promise<void> {
@@ -872,6 +1055,36 @@ export default {
           
         case '/api/monitoring/dashboard':
           return handleMonitoringDashboard(request, env);
+          
+        case '/api/test/manual-page-promotion':
+          try {
+            console.log('🧪 Manual page promotion trigger called');
+            const result = await promotePopularPages(env);
+            return new Response(JSON.stringify({
+              success: true,
+              timestamp: new Date().toISOString(),
+              result: result
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } catch (error) {
+            console.error('❌ Manual page promotion failed:', error);
+            return new Response(JSON.stringify({
+              success: false,
+              error: error instanceof Error ? error.message : 'Unknown error',
+              timestamp: new Date().toISOString()
+            }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+        
+        case '/robots.txt':
+          return handleRobotsTxt(request, env);
+          
+        case '/sitemap.xml':
+          return handleSitemapXml(request, env);
           
         default:
           // Handle image requests with pattern /images/:id
