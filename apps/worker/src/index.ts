@@ -2064,6 +2064,74 @@ function extractKeywordsFromText(tweetText: string): string[] {
     'important', 'few', 'public', 'bad', 'same', 'able', 'rt', 'via'
   ]);
   
+  // First, extract capitalized words (proper nouns) from the original text
+  // Extract words from mentions before removing them
+  const mentionWords: string[] = [];
+  const mentionMatches = tweetText.match(/@(\w+)/g);
+  if (mentionMatches) {
+    mentionMatches.forEach(mention => {
+      const word = mention.substring(1); // Remove the @
+      if (word.length >= 3 && word.length <= 15 && !stopWords.has(word.toLowerCase())) {
+        mentionWords.push(word.toLowerCase());
+      }
+    });
+  }
+  
+  // Remove URLs and mentions from text, but keep original capitalization
+  const textWithoutUrls = tweetText
+    .replace(/https?:\/\/\S+/g, '') // Remove URLs
+    .replace(/@\w+/g, ''); // Remove mentions
+  
+  // Find capitalized words that are NOT after periods (to avoid sentence-starting words)
+  const capitalizedWords: string[] = [];
+  
+  // Split into sentences and process each one
+  const sentences = textWithoutUrls.split(/[.!?]+/);
+  
+  for (let i = 0; i < sentences.length; i++) {
+    const sentence = sentences[i].trim();
+    if (!sentence) continue;
+    
+    // Remove punctuation and split into words
+    const words = sentence.replace(/[^\w\s]/g, ' ').split(/\s+/);
+    
+    for (let j = 0; j < words.length; j++) {
+      const word = words[j].trim();
+      if (!word) continue;
+      
+      // Check if word is capitalized and meets our criteria
+      if (
+        word.length >= 3 && 
+        word.length <= 15 &&
+        /^[A-Z][a-z]+$/.test(word) && // Starts with capital, rest lowercase
+        !stopWords.has(word.toLowerCase()) &&
+        !/^\d+$/.test(word) // Not just numbers
+      ) {
+        // Skip words that are the first word of a sentence (except the very first sentence)
+        // This helps avoid words that are only capitalized because they start a sentence
+        if (j === 0 && i > 0) {
+          continue; // Skip first word of sentences after the first one
+        }
+        
+        capitalizedWords.push(word.toLowerCase());
+      }
+    }
+  }
+  
+  // Combine mention words with capitalized words
+  const allCapitalizedWords = [...mentionWords, ...capitalizedWords];
+  
+  // Remove duplicates and get unique capitalized words
+  const uniqueCapitalizedWords = [...new Set(allCapitalizedWords)];
+  
+  // If we have enough capitalized words, prioritize them
+  if (uniqueCapitalizedWords.length >= 3) {
+    return uniqueCapitalizedWords.slice(0, 3);
+  }
+  
+  // If we don't have enough capitalized words, fall back to frequency-based extraction
+  // but still prioritize any capitalized words we found
+  
   // Clean the text: remove URLs, mentions, and punctuation
   const cleanText = tweetText
     .replace(/https?:\/\/\S+/g, '') // Remove URLs
@@ -2089,11 +2157,23 @@ function extractKeywordsFromText(tweetText: string): string[] {
     wordCounts.set(word, (wordCounts.get(word) || 0) + 1);
   });
   
-  // Sort by frequency and return top keywords
-  return Array.from(wordCounts.entries())
+  // Get frequency-based keywords
+  const frequencyBasedKeywords = Array.from(wordCounts.entries())
     .sort((a, b) => b[1] - a[1]) // Sort by count (descending)
-    .slice(0, 3) // Take top 3
     .map(([word]) => word);
+  
+  // Combine capitalized words with frequency-based keywords
+  // Remove duplicates and ensure capitalized words come first
+  const combinedKeywords = [...uniqueCapitalizedWords];
+  
+  for (const keyword of frequencyBasedKeywords) {
+    if (!combinedKeywords.includes(keyword) && combinedKeywords.length < 3) {
+      combinedKeywords.push(keyword);
+    }
+  }
+  
+  // Return top 3 keywords, prioritizing capitalized words
+  return combinedKeywords.slice(0, 3);
 }
 
 /**
