@@ -12,7 +12,10 @@
     "head_sampling_rate": 1
   },
   "triggers": {
-    "crons": ["* * * * *"]
+    "crons": [
+      "* * * * *",     // Every minute: Twitter polling
+      "0 * * * *"      // Every hour: Page promotion
+    ]
   },
   "vars": {
     "ENVIRONMENT": "development",

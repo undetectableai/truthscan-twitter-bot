@@ -412,6 +412,122 @@ async function isAlreadyProcessed(tweetId: string, env: Env): Promise<boolean> {
 }
 
 /**
+ * Promote popular pages to public indexing
+ * Finds pages with 50+ views that aren't already indexed and makes them publicly searchable
+ */
+async function promotePopularPages(env: Env): Promise<{ success: boolean; promotedCount: number; details: string[] }> {
+  try {
+    console.log('🔍 Checking for pages eligible for public indexing promotion...');
+    
+    // Find pages with 50+ views that aren't already indexed
+    const query = `
+      SELECT 
+        d.page_id,
+        d.id as detection_id,
+        COUNT(pv.id) as view_count,
+        d.robots_index
+      FROM detections d
+      LEFT JOIN page_views pv ON d.page_id = pv.page_id
+      WHERE d.robots_index = 0 OR d.robots_index IS NULL
+      GROUP BY d.page_id, d.id, d.robots_index
+      HAVING COUNT(pv.id) >= 50
+      ORDER BY view_count DESC
+    `;
+    
+    const result = await env.DB.prepare(query).all();
+    const eligiblePages = result.results || [];
+    
+    if (eligiblePages.length === 0) {
+      console.log('✅ No pages found that meet promotion criteria (50+ views, not already indexed)');
+      return { 
+        success: true, 
+        promotedCount: 0, 
+        details: ['No pages eligible for promotion'] 
+      };
+    }
+    
+    console.log(`📈 Found ${eligiblePages.length} page(s) eligible for promotion:`, eligiblePages);
+    
+    const promotedDetails: string[] = [];
+    let promotedCount = 0;
+    
+    // Update each eligible page to be publicly indexable
+    for (const pageRow of eligiblePages) {
+      const page = pageRow as { page_id: string; detection_id: string; view_count: number; robots_index: number | null };
+      try {
+        const updateQuery = `
+          UPDATE detections 
+          SET robots_index = 1, updated_at = ? 
+          WHERE page_id = ?
+        `;
+        
+        const updateResult = await env.DB
+          .prepare(updateQuery)
+          .bind(Math.floor(Date.now() / 1000), page.page_id)
+          .run();
+        
+        if (updateResult.meta && updateResult.meta.changes && updateResult.meta.changes > 0) {
+          promotedCount++;
+          const detail = `Promoted page ${page.page_id} (${page.view_count} views) to public indexing`;
+          promotedDetails.push(detail);
+          console.log(`🎉 ${detail}`);
+          
+          // Log this promotion event for monitoring
+          await logEvent(env, 'info', 'page_promoted', 
+            `Page promoted to public indexing: ${page.page_id}`, {
+              pageId: page.page_id,
+              details: {
+                viewCount: page.view_count,
+                previouslyIndexed: !!page.robots_index
+              }
+            }
+          );
+          
+          // Log system metric for promotion
+          await logSystemMetric(env, 'pages_promoted', 1, 'counter', {
+            tags: { pageId: page.page_id, viewCount: page.view_count }
+          });
+          
+        } else {
+          console.warn(`⚠️ Failed to update page ${page.page_id} - no database changes made`);
+          promotedDetails.push(`Failed to update page ${page.page_id}`);
+        }
+        
+      } catch (pageError) {
+        console.error(`❌ Error promoting page ${page.page_id}:`, pageError);
+        promotedDetails.push(`Error promoting page ${page.page_id}: ${pageError}`);
+      }
+    }
+    
+    console.log(`✅ Page promotion complete: ${promotedCount}/${eligiblePages.length} pages promoted`);
+    
+    return {
+      success: true,
+      promotedCount,
+      details: promotedDetails
+    };
+    
+  } catch (error) {
+    console.error('❌ Error in promotePopularPages:', error);
+    
+    // Log the error for monitoring
+    await logEvent(env, 'error', 'page_promotion_failed', 
+      'Failed to check/promote popular pages', {
+        details: {
+          error: error instanceof Error ? error.message : String(error)
+        }
+      }
+    );
+    
+    return {
+      success: false,
+      promotedCount: 0,
+      details: [`Error: ${error instanceof Error ? error.message : 'Unknown error'}`]
+    };
+  }
+}
+
+/**
  * Smart incremental Twitter mention polling - only fetches tweets newer than sinceId
  * This prevents duplicate processing and optimizes API usage
  */
@@ -626,6 +742,81 @@ async function pollTwitterMentionsIncremental(
   }
 }
 
+/**
+ * Handle Twitter polling (runs every minute)
+ */
+async function handleTwitterPolling(env: Env, ctx: ExecutionContext): Promise<void> {
+  console.log('🐦 Starting Twitter polling...');
+  
+  try {
+    // Smart polling: 4 calls per minute, but each call only fetches NEW tweets
+    // This maximizes our Basic plan rate limit while avoiding duplicate processing
+    const pollingPromises: Promise<void>[] = [];
+    let lastProcessedTweetId: string | null = null;
+    
+    for (let i = 0; i < 4; i++) {
+      const delayMs = i * 15000; // 0s, 15s, 30s, 45s
+      
+      const pollingPromise = new Promise<void>((resolve) => {
+        setTimeout(async () => {
+          try {
+            console.log(`Starting smart polling call ${i + 1}/4 (${delayMs/1000}s delay)`);
+            const result = await pollTwitterMentionsIncremental(env, ctx, lastProcessedTweetId);
+            
+            // Update the last processed tweet ID for the next call
+            if (result.highestTweetId) {
+              lastProcessedTweetId = result.highestTweetId;
+              console.log(`Updated last processed tweet ID to: ${lastProcessedTweetId}`);
+            }
+            
+            console.log(`Completed smart polling call ${i + 1}/4 - Found ${result.newTweetsCount} new tweets`);
+          } catch (error) {
+            console.error(`Error in smart polling call ${i + 1}/4:`, error);
+          }
+          resolve();
+        }, delayMs);
+      });
+      
+      pollingPromises.push(pollingPromise);
+    }
+    
+    // Use waitUntil to ensure all polling calls complete
+    ctx.waitUntil(Promise.all(pollingPromises));
+    
+    console.log('✅ Scheduled 4 smart polling calls (incremental, every 15s) for this minute');
+    
+  } catch (error) {
+    console.error('❌ Error in Twitter polling setup:', error);
+  }
+}
+
+/**
+ * Handle page promotion (runs every hour)
+ */
+async function handlePagePromotion(env: Env, ctx: ExecutionContext): Promise<void> {
+  console.log('🔍 Starting page promotion check...');
+  
+  try {
+    // Run the page promotion logic
+    const promotionTask = promotePopularPages(env);
+    
+    // Use waitUntil for proper background task handling
+    ctx.waitUntil(promotionTask.then(result => {
+      if (result.success) {
+        console.log(`✅ Page promotion completed: ${result.promotedCount} pages promoted`);
+        result.details.forEach(detail => console.log(`  - ${detail}`));
+      } else {
+        console.error('❌ Page promotion failed:', result.details);
+      }
+    }));
+    
+    console.log('✅ Page promotion task scheduled');
+    
+  } catch (error) {
+    console.error('❌ Error in page promotion setup:', error);
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     try {
@@ -724,44 +915,19 @@ export default {
     });
 
     try {
-      // Smart polling: 4 calls per minute, but each call only fetches NEW tweets
-      // This maximizes our Basic plan rate limit while avoiding duplicate processing
-      const pollingPromises: Promise<void>[] = [];
-      let lastProcessedTweetId: string | null = null;
-      
-      for (let i = 0; i < 4; i++) {
-        const delayMs = i * 15000; // 0s, 15s, 30s, 45s
-        
-        const pollingPromise = new Promise<void>((resolve) => {
-          setTimeout(async () => {
-            try {
-              console.log(`Starting smart polling call ${i + 1}/4 (${delayMs/1000}s delay)`);
-              const result = await pollTwitterMentionsIncremental(env, ctx, lastProcessedTweetId);
-              
-              // Update the last processed tweet ID for the next call
-              if (result.highestTweetId) {
-                lastProcessedTweetId = result.highestTweetId;
-                console.log(`Updated last processed tweet ID to: ${lastProcessedTweetId}`);
-              }
-              
-              console.log(`Completed smart polling call ${i + 1}/4 - Found ${result.newTweetsCount} new tweets`);
-            } catch (error) {
-              console.error(`Error in smart polling call ${i + 1}/4:`, error);
-            }
-            resolve();
-          }, delayMs);
-        });
-        
-        pollingPromises.push(pollingPromise);
+      // Handle different cron schedules
+      if (event.cron === '* * * * *') {
+        // Every minute: Twitter polling
+        await handleTwitterPolling(env, ctx);
+      } else if (event.cron === '0 * * * *') {
+        // Every hour: Page promotion
+        await handlePagePromotion(env, ctx);
+      } else {
+        console.warn('Unknown cron schedule:', event.cron);
       }
       
-      // Use waitUntil to ensure all polling calls complete
-      ctx.waitUntil(Promise.all(pollingPromises));
-      
-      console.log('Scheduled 4 smart polling calls (incremental, every 15s) for this minute');
-      
     } catch (error) {
-      console.error('Error in scheduled Twitter smart polling setup:', error);
+      console.error('Error in scheduled function:', error);
     }
   },
 };
@@ -4735,7 +4901,6 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       text-align: center;
       color: var(--text-muted);
       font-size: 0.875rem;
-      border-top: 1px solid var(--border-color);
       background: var(--background-white);
     }
     
@@ -4764,7 +4929,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       }
       
       .container {
-        padding: var(--spacing-xl) var(--spacing-lg);
+        padding: calc(var(--spacing-xl) * 0.5) var(--spacing-lg);
         max-width: 1400px;
         margin: 0 auto;
       }
@@ -4863,7 +5028,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
 
       
       .container {
-        padding: var(--spacing-xl) calc(var(--spacing-xl) * 2);
+        padding: calc(var(--spacing-xl) * 0.5) calc(var(--spacing-xl) * 2);
       }
       
       .detection-row {
