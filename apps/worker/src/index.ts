@@ -4348,8 +4348,8 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       object-fit: cover;
       object-position: center;
       border-radius: 0;
-      box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.25), 
-                  0 4px 6px -2px rgba(59, 130, 246, 0.15);
+      box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.45), 
+                  0 4px 6px -2px rgba(59, 130, 246, 0.35);
       transition: transform 0.3s ease, box-shadow 0.3s ease;
       display: block;
       margin: 0;
@@ -4358,8 +4358,8 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     
     .analyzed-image:hover {
       transform: translateY(-2px) scale(1.02);
-      box-shadow: 0 20px 40px -5px rgba(59, 130, 246, 0.4), 
-                  0 8px 12px -2px rgba(59, 130, 246, 0.25);
+      box-shadow: 0 20px 40px -5px rgba(59, 130, 246, 0.6), 
+                  0 8px 12px -2px rgba(59, 130, 246, 0.45);
     }
     
     .image-fallback {
@@ -4374,8 +4374,8 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       font-size: 1.125rem;
       font-weight: 500;
       border-radius: 0;
-      box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.25), 
-                  0 4px 6px -2px rgba(59, 130, 246, 0.15);
+      box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.45), 
+                  0 4px 6px -2px rgba(59, 130, 246, 0.35);
       margin: 0;
       padding: 0;
     }
@@ -4388,24 +4388,22 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     }
     
     .score-metrics {
-      background: var(--background-white);
-      border: 1px solid var(--border-color);
-      border-radius: var(--border-radius);
-      padding: var(--space-6);
-      margin-bottom: var(--content-gap);
-      box-shadow: var(--shadow-sm);
+      background: transparent;
     }
     
     .metric-item {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: var(--space-3) 0;
-      border-bottom: 1px solid var(--border-color);
+      padding: calc(var(--space-3) * 0.5) 0;
+    }
+    
+    .metric-item:first-child {
+      padding-top: 0;
     }
     
     .metric-item:last-child {
-      border-bottom: none;
+      padding-bottom: 0;
     }
     
     .metric-label {
@@ -4429,6 +4427,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     
     .source-link-container {
       text-align: center;
+      margin-top: var(--space-8);
     }
     
 
@@ -4459,6 +4458,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     
     /* Social Sharing Section - In Right Column */
     .share-section {
+      margin-top: var(--space-8);
     }
     
     .share-row {
@@ -4560,7 +4560,8 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       font-weight: 700;
       text-decoration: none;
       border-radius: 9999px;
-      box-shadow: var(--shadow-md);
+      box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.45), 
+                  0 4px 6px -2px rgba(59, 130, 246, 0.35);
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       padding: var(--space-4) var(--space-8);
       font-size: 1.125rem;
@@ -4570,7 +4571,8 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     
     .premium-cta:hover {
       background: linear-gradient(to right, #1e3a8a, #1d4ed8);
-      box-shadow: var(--shadow-lg);
+      box-shadow: 0 20px 40px -5px rgba(59, 130, 246, 0.6), 
+                  0 8px 12px -2px rgba(59, 130, 246, 0.45);
       transform: translateY(-1px);
     }
     
@@ -4615,16 +4617,50 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
         line-height: 2.75rem;
       }
       
-
-      
       .container {
         padding: var(--spacing-xl) var(--spacing-lg);
         max-width: 1400px;
         margin: 0 auto;
       }
       
+      /* Two-column layout on desktop */
+      .main-content {
+        display: flex;
+        gap: calc(var(--spacing-xl) * 1.5);
+        align-items: flex-start;
+      }
+      
       .detection-row {
-        gap: calc(var(--spacing-xl) * 1.5); /* More space between image and content on desktop */
+        flex-direction: column;
+        gap: 0;
+        align-items: center;
+        flex: 0 0 auto;
+        width: 500px;
+      }
+      
+      .image-section {
+        width: 100%;
+      }
+      
+      .analyzed-image {
+        width: 500px;
+        height: 500px;
+      }
+      
+      .image-fallback {
+        width: 500px;
+        height: 500px;
+      }
+      
+      .results-section {
+        flex: 1;
+        max-width: none;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-8);
+        justify-content: center;
+        min-height: 500px;
       }
       
       .metric-label {
@@ -4653,6 +4689,16 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       .premium-cta {
         padding: 1rem 3rem;
         font-size: 1.25rem;
+      }
+      
+      /* Remove margins since we're using flexbox gap */
+      .score-metrics {
+        margin-bottom: 0;
+      }
+      
+      .source-link-container,
+      .share-section {
+        margin-top: 0;
       }
     }
     
@@ -4697,13 +4743,32 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     
     @media (max-width: 767px) {
       .page-header {
-        padding: calc(var(--spacing-lg) * 0.7) var(--spacing-sm) calc(var(--spacing-lg) * 0.7);
+        padding: calc(var(--spacing-lg) * 0.7) var(--spacing-sm) 0;
         margin-bottom: 0;
         text-align: center;
       }
       
       .container {
         padding: calc(var(--spacing-lg) * 0.7) var(--spacing-sm);
+      }
+      
+      .results-section {
+        margin-top: calc(var(--spacing-lg) * 0.7);
+        display: flex;
+        flex-direction: column;
+      }
+      
+      /* Reorder sections on mobile: Share section above View Original Tweet */
+      .cta-container {
+        order: 1;
+      }
+      
+      .share-section {
+        order: 2;
+      }
+      
+      .source-link-container {
+        order: 3;
       }
       
       .main-content {
@@ -4718,9 +4783,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
         margin-bottom: calc(var(--spacing-lg) * 0.7) !important;
       }
       
-      .premium-cta {
-        margin-bottom: calc(var(--spacing-lg) * 0.7);
-      }
+
       
       /* Override the inline margin styles on mobile */
       div[style*="margin-top: 2rem"] {
@@ -4771,7 +4834,6 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       .detection-row,
       .main-content,
       .score-metrics,
-      .cta-container,
       .source-link-container {
         margin-bottom: calc(var(--spacing-lg) * 0.7);
       }
@@ -4798,15 +4860,15 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       }
       
       .probability-value {
-        font-size: 1.2rem;
+        font-size: 1.56rem; /* 1.2rem * 1.3 */
       }
       
       .metric-value {
-        font-size: 0.9rem;
+        font-size: 1.17rem; /* 0.9rem * 1.3 */
       }
       
       .metric-label {
-        font-size: 0.7rem;
+        font-size: 0.91rem; /* 0.7rem * 1.3 */
       }
       
       .actions-section {
@@ -4823,8 +4885,8 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       .premium-cta {
         padding: 0.5rem 1.5rem;
         font-size: 1rem;
-        margin-top: calc(var(--spacing-lg) * 0.7);
-        margin-bottom: calc(var(--spacing-lg) * 0.7);
+        margin-top: 12px;
+        margin-bottom: 12px;
       }
       
       .source-link-container {
@@ -4883,9 +4945,8 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     
     <!-- Main Content -->
     <main class="main-content" role="main">
-      <!-- Detection Row - Image Left, Score Right -->
+      <!-- Left Column: Image -->
       <div class="detection-row">
-        <!-- Image Section -->
         <div class="image-section">
           <img 
             src="${currentDomain}/images/${pageId}" 
@@ -4898,60 +4959,60 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
             🖼️ Image not available
           </div>
         </div>
-        
-        <!-- Results Section -->
-        <section class="results-section">
-          <div class="score-metrics">
-            <!-- AI Probability -->
-            <div class="metric-item">
-              <div class="metric-label">AI Probability</div>
-              <div class="metric-value probability-value">${scorePercentage}%</div>
-            </div>
-            
-            <!-- Confidence -->
-            <div class="metric-item">
-              <div class="metric-label">Confidence</div>
-              <div class="metric-value confidence-value">${confidenceLevel}</div>
-            </div>
-            
-            <!-- Classification -->
-            <div class="metric-item">
-              <div class="metric-label">Classification</div>
-              <div class="metric-value classification-value" style="color: ${scoreColor};">${classification}</div>
-            </div>
-          </div>
-          
-          <!-- Premium CTA Button -->
-          <div class="cta-container">
-            <a href="https://truthscan.com/ai-image-detector" class="premium-cta" target="_blank" rel="noopener noreferrer">
-              Test Another Image
-              <svg class="cta-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-              </svg>
-            </a>
-          </div>
-          
-          <!-- Original Tweet Link -->
-          <div class="source-link-container">
-            <a href="${twitterUrl}" class="source-link" target="_blank" rel="noopener noreferrer">
-              🐦 View Original Tweet by @${data.twitter_handle}
-            </a>
-          </div>
-          
-          <!-- Social Sharing Section -->
-          <div class="share-section">
-            <div class="share-row">
-              <div class="share-label">Share:</div>
-              <div class="share-buttons">
-                <button class="social-btn facebook" onclick="shareOnFacebook()" title="Share on Facebook"></button>
-                <button class="social-btn twitter" onclick="shareOnTwitter()" title="Share on Twitter/X"></button>
-                <button class="social-btn linkedin" onclick="shareOnLinkedIn()" title="Share on LinkedIn"></button>
-                <button class="social-btn copy" onclick="copyLink()" title="Copy Link"></button>
-              </div>
-            </div>
-          </div>
-        </section>
       </div>
+      
+      <!-- Right Column: Results Section -->
+      <section class="results-section">
+        <div class="score-metrics">
+          <!-- AI Probability -->
+          <div class="metric-item">
+            <div class="metric-label">AI Probability</div>
+            <div class="metric-value probability-value">${scorePercentage}%</div>
+          </div>
+          
+          <!-- Confidence -->
+          <div class="metric-item">
+            <div class="metric-label">Confidence</div>
+            <div class="metric-value confidence-value">${confidenceLevel}</div>
+          </div>
+          
+          <!-- Classification -->
+          <div class="metric-item">
+            <div class="metric-label">Classification</div>
+            <div class="metric-value classification-value" style="color: ${scoreColor};">${classification}</div>
+          </div>
+        </div>
+        
+        <!-- Premium CTA Button -->
+        <div class="cta-container">
+          <a href="https://truthscan.com/ai-image-detector" class="premium-cta" target="_blank" rel="noopener noreferrer">
+            Test Another Image
+            <svg class="cta-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+            </svg>
+          </a>
+        </div>
+        
+        <!-- Original Tweet Link -->
+        <div class="source-link-container">
+          <a href="${twitterUrl}" class="source-link" target="_blank" rel="noopener noreferrer">
+            🐦 View Original Tweet by @${data.twitter_handle}
+          </a>
+        </div>
+        
+        <!-- Social Sharing Section -->
+        <div class="share-section">
+          <div class="share-row">
+            <div class="share-label">Share:</div>
+            <div class="share-buttons">
+              <button class="social-btn facebook" onclick="shareOnFacebook()" title="Share on Facebook"></button>
+              <button class="social-btn twitter" onclick="shareOnTwitter()" title="Share on Twitter/X"></button>
+              <button class="social-btn linkedin" onclick="shareOnLinkedIn()" title="Share on LinkedIn"></button>
+              <button class="social-btn copy" onclick="copyLink()" title="Copy Link"></button>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
     
     <!-- Footer -->
