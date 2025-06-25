@@ -1312,6 +1312,18 @@ interface TwitterTweet {
       text: string;
       indices: [number, number];
     }>;
+    urls?: Array<{
+      url: string;
+      expanded_url: string;
+      display_url: string;
+      indices: [number, number];
+      unwound?: {
+        url: string;
+        status: number;
+        title?: string;
+        description?: string;
+      };
+    }>;
   };
   extended_entities?: {
     media?: TwitterMedia[];
@@ -1462,7 +1474,7 @@ async function handleTwitterEvent(request: Request, env: Env, ctx: ExecutionCont
     
     for (const tweet of payload.tweet_create_events) {
       try {
-        const parsedTweet = parseTweetData(tweet, env);
+        const parsedTweet = await parseTweetData(tweet, env);
         
         if (parsedTweet.isMentioningBot) {
           console.log('Bot mentioned in tweet:', {
@@ -1531,7 +1543,7 @@ async function handleTwitterEvent(request: Request, env: Env, ctx: ExecutionCont
 /**
  * Parse tweet data and extract relevant information
  */
-function parseTweetData(tweet: TwitterTweet, env: Env): ParsedTweetData {
+async function parseTweetData(tweet: TwitterTweet, env: Env): Promise<ParsedTweetData> {
   // Bot's Twitter handle (from environment variable, fallback to default)
   const BOT_USERNAME = env.TWITTER_BOT_USERNAME || 'truth_scan';
   
@@ -1551,8 +1563,8 @@ function parseTweetData(tweet: TwitterTweet, env: Env): ParsedTweetData {
     mentionedUser.toLowerCase() === BOT_USERNAME.toLowerCase()
   );
   
-  // Extract image URLs from media entities
-  const imageUrls = extractImageUrls(tweet);
+  // Extract image URLs from both media entities and Open Graph images
+  const imageUrls = await extractAllImageUrls(tweet);
   
   console.log('Parsed tweet data:', {
     tweetId,
@@ -1564,7 +1576,8 @@ function parseTweetData(tweet: TwitterTweet, env: Env): ParsedTweetData {
     hashtags,
     isMentioningBot,
     botUsername: BOT_USERNAME,
-    textPreview: text.substring(0, 50) + '...'
+    textPreview: text.substring(0, 50) + '...',
+    urlCount: tweet.entities?.urls?.length || 0
   });
   
   return {
@@ -1604,6 +1617,266 @@ function extractImageUrls(tweet: TwitterTweet): string[] {
   } catch (error) {
     console.error('Error extracting image URLs:', error);
     return [];
+  }
+}
+
+/**
+ * Extract Open Graph image URLs from tweet URLs
+ */
+async function extractOpenGraphImages(tweet: TwitterTweet): Promise<string[]> {
+  try {
+    const urlEntities = tweet.entities?.urls || [];
+    
+    if (urlEntities.length === 0) {
+      console.log('No URLs found in tweet entities');
+      return [];
+    }
+    
+    console.log('Processing URLs for Open Graph images:', {
+      urlCount: urlEntities.length,
+      urls: urlEntities.map(u => ({ url: u.url, expanded: u.expanded_url }))
+    });
+    
+    const ogImagePromises = urlEntities.map(async (urlEntity) => {
+      try {
+        // Use expanded_url if available, otherwise fall back to the t.co URL
+        const targetUrl = urlEntity.expanded_url || urlEntity.url;
+        
+        if (!targetUrl) {
+          console.log('Skipping URL entity with no target URL');
+          return [];
+        }
+        
+        console.log('Fetching Open Graph images from:', targetUrl);
+        const ogImages = await fetchOpenGraphImages(targetUrl);
+        
+        if (ogImages.length > 0) {
+          console.log(`Found ${ogImages.length} OG images from ${targetUrl}:`, ogImages);
+        }
+        
+        return ogImages;
+      } catch (error) {
+        console.error(`Error processing URL ${urlEntity.url}:`, error);
+        return [];
+      }
+    });
+    
+    // Wait for all URL processing to complete
+    const results = await Promise.all(ogImagePromises);
+    
+    // Flatten the array of arrays and remove duplicates
+    const allOgImages = results.flat();
+    const uniqueOgImages = [...new Set(allOgImages)];
+    
+    console.log('Open Graph image extraction summary:', {
+      totalUrlsProcessed: urlEntities.length,
+      totalOgImagesFound: allOgImages.length,
+      uniqueOgImages: uniqueOgImages.length,
+      images: uniqueOgImages
+    });
+    
+    return uniqueOgImages;
+    
+  } catch (error) {
+    console.error('Error extracting Open Graph images:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch and parse Open Graph images from a URL
+ */
+async function fetchOpenGraphImages(url: string): Promise<string[]> {
+  try {
+    console.log('Fetching HTML content for OG parsing from:', url);
+    
+    // Create timeout promise (5 seconds)
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('Fetch timeout'));
+      }, 5000);
+    });
+    
+    // Create fetch promise
+    const fetchPromise = fetch(url, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; TruthscanBot/1.0; +https://truthscan.app)',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+      },
+      // Follow redirects
+      redirect: 'follow'
+    });
+    
+    // Race fetch against timeout
+    const response = await Promise.race([fetchPromise, timeoutPromise]) as Response;
+    
+    if (!response.ok) {
+      console.log(`HTTP ${response.status} for ${url}, skipping OG parsing`);
+      return [];
+    }
+    
+    // Check content type
+    const contentType = response.headers.get('Content-Type') || '';
+    if (!contentType.includes('text/html')) {
+      console.log(`Non-HTML content type (${contentType}) for ${url}, skipping OG parsing`);
+      return [];
+    }
+    
+    // Get the HTML content
+    const html = await response.text();
+    console.log(`Successfully fetched ${html.length} characters of HTML from ${url}`);
+    
+    // Parse Open Graph meta tags
+    const ogImages = parseOpenGraphImages(html, url);
+    
+    return ogImages;
+    
+  } catch (error) {
+    console.error(`Error fetching Open Graph images from ${url}:`, error);
+    return [];
+  }
+}
+
+/**
+ * Parse Open Graph image URLs from HTML content
+ */
+function parseOpenGraphImages(html: string, baseUrl: string): string[] {
+  try {
+    const ogImages: string[] = [];
+    
+    // Regular expressions to match Open Graph image meta tags
+    const ogImagePatterns = [
+      /<meta\s+property=["']og:image["']\s+content=["']([^"']+)["'][^>]*>/gi,
+      /<meta\s+content=["']([^"']+)["']\s+property=["']og:image["'][^>]*>/gi,
+      /<meta\s+property=["']og:image:secure_url["']\s+content=["']([^"']+)["'][^>]*>/gi,
+      /<meta\s+content=["']([^"']+)["']\s+property=["']og:image:secure_url["'][^>]*>/gi
+    ];
+    
+    console.log('Parsing HTML for Open Graph images...');
+    
+    // Extract URLs using each pattern
+    for (const pattern of ogImagePatterns) {
+      let match;
+      while ((match = pattern.exec(html)) !== null) {
+        const imageUrl = match[1];
+        if (imageUrl && imageUrl.trim()) {
+          const resolvedUrl = resolveUrl(imageUrl.trim(), baseUrl);
+          if (resolvedUrl && !ogImages.includes(resolvedUrl)) {
+            ogImages.push(resolvedUrl);
+            console.log(`Found OG image: ${resolvedUrl}`);
+          }
+        }
+      }
+    }
+    
+    // Also check for basic image meta tag as fallback
+    const basicImagePattern = /<meta\s+property=["']image["']\s+content=["']([^"']+)["'][^>]*>/gi;
+    let match;
+    while ((match = basicImagePattern.exec(html)) !== null) {
+      const imageUrl = match[1];
+      if (imageUrl && imageUrl.trim()) {
+        const resolvedUrl = resolveUrl(imageUrl.trim(), baseUrl);
+        if (resolvedUrl && !ogImages.includes(resolvedUrl)) {
+          ogImages.push(resolvedUrl);
+          console.log(`Found basic image meta tag: ${resolvedUrl}`);
+        }
+      }
+    }
+    
+    // Filter to only include likely image URLs (basic validation)
+    const validImageUrls = ogImages.filter(url => {
+      try {
+        const urlObj = new URL(url);
+        const pathname = urlObj.pathname.toLowerCase();
+        
+        // Check if it looks like an image file or could be a dynamic image
+        const hasImageExtension = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?.*)?$/i.test(pathname);
+        const hasImageIndicators = pathname.includes('image') || pathname.includes('photo') || pathname.includes('picture');
+        const isHttps = urlObj.protocol === 'https:';
+        
+        return (hasImageExtension || hasImageIndicators) && isHttps;
+      } catch (error) {
+        console.log(`Invalid URL found in OG parsing: ${url}`);
+        return false;
+      }
+    });
+    
+    console.log(`Parsed Open Graph images from HTML:`, {
+      totalFound: ogImages.length,
+      validUrls: validImageUrls.length,
+      images: validImageUrls
+    });
+    
+    return validImageUrls;
+    
+  } catch (error) {
+    console.error('Error parsing Open Graph images from HTML:', error);
+    return [];
+  }
+}
+
+/**
+ * Resolve relative URLs to absolute URLs
+ */
+function resolveUrl(url: string, baseUrl: string): string | null {
+  try {
+    // If already absolute URL, return as-is
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    
+    // If protocol-relative URL, use HTTPS
+    if (url.startsWith('//')) {
+      return `https:${url}`;
+    }
+    
+    // Resolve relative URL against base URL
+    const base = new URL(baseUrl);
+    const resolved = new URL(url, base);
+    return resolved.href;
+    
+  } catch (error) {
+    console.error(`Error resolving URL "${url}" against base "${baseUrl}":`, error);
+    return null;
+  }
+}
+
+/**
+ * Enhanced image URL extraction that includes both media entities and Open Graph images
+ */
+async function extractAllImageUrls(tweet: TwitterTweet): Promise<string[]> {
+  try {
+    console.log('Starting comprehensive image URL extraction...');
+    
+    // Extract direct media attachments
+    const mediaImages = extractImageUrls(tweet);
+    
+    // Extract Open Graph images from URLs
+    const ogImages = await extractOpenGraphImages(tweet);
+    
+    // Combine and deduplicate
+    const allImages = [...mediaImages, ...ogImages];
+    const uniqueImages = [...new Set(allImages)];
+    
+    console.log('Comprehensive image extraction complete:', {
+      mediaImages: mediaImages.length,
+      ogImages: ogImages.length,
+      totalUnique: uniqueImages.length,
+      images: uniqueImages
+    });
+    
+    return uniqueImages;
+    
+  } catch (error) {
+    console.error('Error in comprehensive image URL extraction:', error);
+    // Fallback to just media images if OG extraction fails
+    return extractImageUrls(tweet);
   }
 }
 
