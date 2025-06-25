@@ -2169,7 +2169,7 @@ function convertToBaseForm(word: string): string {
 /**
  * Extract meaningful keywords from tweet text for hashtag generation
  */
-function extractKeywordsFromText(tweetText: string): string[] {
+function extractKeywordsFromText(tweetText: string, existingHashtags: string[] = []): string[] {
   // Profanity and offensive words to filter out (conservative list)
   const profanityWords = new Set([
     'fuck', 'fucking', 'shit', 'damn', 'hell', 'ass', 'sex', 'porn', 'xxx',
@@ -2214,6 +2214,11 @@ function extractKeywordsFromText(tweetText: string): string[] {
     'under', 'through', 'into', 'onto', 'from', 'about', 'above', 'below', 'between', 'among'
   ]);
   
+  // Create a set of existing hashtag words (normalized to lowercase) to avoid duplicates
+  const existingHashtagWords = new Set(
+    existingHashtags.map(tag => tag.toLowerCase().replace(/^#/, ''))
+  );
+  
   // First, extract capitalized words (proper nouns) from the original text
   // Extract words from mentions before removing them
   const mentionWords: string[] = [];
@@ -2225,7 +2230,8 @@ function extractKeywordsFromText(tweetText: string): string[] {
       const baseForm = convertToBaseForm(word);
       if (word.length >= 3 && word.length <= 15 && 
           !stopWords.has(lowerWord) && !profanityWords.has(lowerWord) &&
-          !stopWords.has(baseForm) && !profanityWords.has(baseForm)) {
+          !stopWords.has(baseForm) && !profanityWords.has(baseForm) &&
+          !existingHashtagWords.has(lowerWord) && !existingHashtagWords.has(baseForm)) {
         mentionWords.push(baseForm);
       }
     });
@@ -2267,10 +2273,12 @@ function extractKeywordsFromText(tweetText: string): string[] {
         }
         
         // For capitalized words (proper nouns), check both original and base form against filters
+        // Also exclude words that already exist in hashtags to avoid duplicates
         const lowerWord = word.toLowerCase();
         const baseForm = convertToBaseForm(word);
         if (!stopWords.has(lowerWord) && !profanityWords.has(lowerWord) &&
-            !stopWords.has(baseForm) && !profanityWords.has(baseForm)) {
+            !stopWords.has(baseForm) && !profanityWords.has(baseForm) &&
+            !existingHashtagWords.has(lowerWord) && !existingHashtagWords.has(baseForm)) {
           capitalizedWords.push(lowerWord); // Keep original proper noun, just lowercase it
         }
       }
@@ -2308,6 +2316,7 @@ function extractKeywordsFromText(tweetText: string): string[] {
         word.length <= 15 && // Not too long
         !stopWords.has(word) && !profanityWords.has(word) && // Check original word first
         !stopWords.has(baseForm) && !profanityWords.has(baseForm) && // Then check base form
+        !existingHashtagWords.has(word) && !existingHashtagWords.has(baseForm) && // Avoid hashtag duplicates
         !/^\d+$/.test(word) && // Not just numbers
         /^[a-z]+$/.test(word); // Only letters
     });
@@ -2362,7 +2371,7 @@ function formatHashtagsForReply(originalHashtags: string[], tweetText: string = 
   
   // If we need more hashtags and have tweet text, extract keywords
   if (finalHashtags.length < 3 && tweetText.trim()) {
-    const keywords = extractKeywordsFromText(tweetText);
+    const keywords = extractKeywordsFromText(tweetText, originalHashtags);
     const needed = 3 - finalHashtags.length;
     const keywordsToAdd = keywords.slice(0, needed);
     finalHashtags = [...finalHashtags, ...keywordsToAdd];
