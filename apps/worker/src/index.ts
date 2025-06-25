@@ -967,6 +967,18 @@ interface TwitterV2TweetResponse {
   };
 }
 
+interface TwitterV2LikeResponse {
+  data: {
+    liked: boolean;
+  };
+}
+
+interface TwitterUserResponse {
+  id_str: string;
+  screen_name: string;
+  name: string;
+}
+
 /**
  * AI Detection API Types (Undetectable.AI)
  */
@@ -1814,6 +1826,19 @@ async function replyToTweet(
       replyTweetId: replyResponse.data.id,
       text: replyResponse.data.text
     });
+
+    // After successful reply, attempt to like the original tweet
+    // Use background promise so it doesn't block the response
+    const likePromise = likeTweet(originalTweetId, env).catch(error => {
+      // Log the error but don't let it affect the reply success
+      console.warn('Failed to like original tweet (graceful degradation):', {
+        originalTweetId,
+        error: error?.message || error
+      });
+    });
+    
+    // Don't await the like operation - let it run in background
+    void likePromise;
     
     return {
       success: true,
@@ -1843,6 +1868,118 @@ async function replyToTweet(
       success: false,
       error: errorMessage
     };
+  }
+}
+
+/**
+ * Like a tweet using Twitter API v2
+ * Uses graceful degradation - failures don't affect main bot functionality
+ */
+async function likeTweet(
+  tweetId: string,
+  env: Env
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    console.log('Attempting to like tweet:', { tweetId });
+    
+    // Get the bot's user ID - we need this for the API endpoint
+    // For now, we'll use a hardcoded approach since we know it's the bot's account
+    // In a production system, you might want to fetch this dynamically
+    const botUserId = await getBotUserId(env);
+    
+    if (!botUserId) {
+      throw new Error('Unable to determine bot user ID');
+    }
+    
+    // Prepare like request data
+    const likeData = {
+      tweet_id: tweetId
+    };
+    
+    // Generate OAuth signature for POST request
+    const url = `https://api.twitter.com/2/users/${botUserId}/likes`;
+    const authHeader = await generateTwitterOAuthSignature('POST', url, {}, env);
+    
+    // Post the like using Twitter API v2
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': authHeader,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(likeData)
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.text();
+      throw new Error(`Twitter API error: ${response.status} ${response.statusText} - ${errorData}`);
+    }
+    
+    const likeResponse: TwitterV2LikeResponse = await response.json();
+    
+    console.log('Tweet liked successfully:', {
+      tweetId,
+      liked: likeResponse.data?.liked
+    });
+    
+    return {
+      success: true
+    };
+    
+  } catch (error: any) {
+    console.error('Failed to like tweet:', {
+      tweetId,
+      error: error?.message || error
+    });
+    
+    // Provide helpful context for common errors
+    let errorMessage = 'Unknown error';
+    
+    if (error?.message?.includes('429')) {
+      errorMessage = 'Rate limit exceeded (200/day limit reached) - like functionality temporarily disabled';
+    } else if (error?.message?.includes('403')) {
+      errorMessage = 'Permission denied - check API credentials and like.write scope';
+    } else if (error?.message?.includes('400')) {
+      errorMessage = 'Bad request - invalid tweet ID or already liked';
+    } else if (error?.message) {
+      errorMessage = error.message;
+    }
+    
+    return {
+      success: false,
+      error: errorMessage
+    };
+  }
+}
+
+/**
+ * Get the bot's user ID for API requests
+ * This could be cached or stored in environment variables for efficiency
+ */
+async function getBotUserId(env: Env): Promise<string | null> {
+  try {
+    // Use the verify_credentials endpoint to get our own user info
+    const url = 'https://api.twitter.com/1.1/account/verify_credentials.json';
+    const authHeader = await generateTwitterOAuthSignature('GET', url, {}, env);
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': authHeader,
+      }
+    });
+    
+    if (!response.ok) {
+      console.error('Failed to get bot user ID:', response.status, response.statusText);
+      return null;
+    }
+    
+    const userData: TwitterUserResponse = await response.json();
+    return userData.id_str;
+    
+  } catch (error) {
+    console.error('Error fetching bot user ID:', error);
+    return null;
   }
 }
 
