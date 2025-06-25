@@ -2257,9 +2257,10 @@ function extractKeywordsFromText(tweetText: string): string[] {
           continue; // Skip first word of sentences after the first one
         }
         
+        // For capitalized words (proper nouns), check base form against stop words but keep original word
         const baseForm = convertToBaseForm(word);
         if (!stopWords.has(baseForm)) {
-          capitalizedWords.push(baseForm);
+          capitalizedWords.push(word.toLowerCase()); // Keep original proper noun, just lowercase it
         }
       }
     }
