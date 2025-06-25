@@ -4074,7 +4074,9 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
   <link rel="prefetch" href="/thumbnails/${pageId}">
   
   <!-- Favicon -->
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔍</text></svg>">
+  <link rel="icon" href="https://truthscan.com/favicon.ico">
+  <link rel="shortcut icon" href="https://truthscan.com/favicon.ico">
+  <link rel="apple-touch-icon" href="https://truthscan.com/favicon.ico">
   
   <!-- JSON-LD Structured Data for Search Engines -->
   <script type="application/ld+json">
@@ -4247,12 +4249,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     /* Header */
     .page-header {
       background: var(--background-white);
-      border-bottom: 1px solid var(--border-color);
       padding: var(--space-8) var(--space-4);
-      position: sticky;
-      top: 0;
-      z-index: 10;
-      box-shadow: var(--shadow-sm);
     }
     
     .header-link {
@@ -4350,8 +4347,9 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       aspect-ratio: 1;
       object-fit: cover;
       object-position: center;
-      border-radius: var(--border-radius);
-      box-shadow: var(--shadow-lg);
+      border-radius: 0;
+      box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.25), 
+                  0 4px 6px -2px rgba(59, 130, 246, 0.15);
       transition: transform 0.3s ease, box-shadow 0.3s ease;
       display: block;
       margin: 0;
@@ -4359,9 +4357,9 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     }
     
     .analyzed-image:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 15px 30px -5px rgba(59, 130, 246, 0.3), 
-                  0 6px 8px -2px rgba(59, 130, 246, 0.2);
+      transform: translateY(-2px) scale(1.02);
+      box-shadow: 0 20px 40px -5px rgba(59, 130, 246, 0.4), 
+                  0 8px 12px -2px rgba(59, 130, 246, 0.25);
     }
     
     .image-fallback {
@@ -4375,8 +4373,9 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       color: var(--text-muted);
       font-size: 1.125rem;
       font-weight: 500;
-      border-radius: var(--border-radius);
-      box-shadow: var(--shadow-lg);
+      border-radius: 0;
+      box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.25), 
+                  0 4px 6px -2px rgba(59, 130, 246, 0.15);
       margin: 0;
       padding: 0;
     }
