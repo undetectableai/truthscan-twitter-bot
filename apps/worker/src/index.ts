@@ -1652,11 +1652,16 @@ async function extractOpenGraphImages(tweet: TwitterTweet): Promise<string[]> {
         
         if (ogImages.length > 0) {
           console.log(`Found ${ogImages.length} OG images from ${targetUrl}:`, ogImages);
+        } else {
+          console.log(`No Open Graph images found from ${targetUrl}`);
         }
         
         return ogImages;
       } catch (error) {
-        console.error(`Error processing URL ${urlEntity.url}:`, error);
+        console.error(`Error processing URL ${urlEntity.url}:`, {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          targetUrl: urlEntity.expanded_url || urlEntity.url
+        });
         return [];
       }
     });
@@ -1690,11 +1695,11 @@ async function fetchOpenGraphImages(url: string): Promise<string[]> {
   try {
     console.log('Fetching HTML content for OG parsing from:', url);
     
-    // Create timeout promise (5 seconds)
+    // Create timeout promise (15 seconds for production)
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => {
         reject(new Error('Fetch timeout'));
-      }, 5000);
+      }, 15000);
     });
     
     // Create fetch promise
@@ -1738,7 +1743,12 @@ async function fetchOpenGraphImages(url: string): Promise<string[]> {
     return ogImages;
     
   } catch (error) {
-    console.error(`Error fetching Open Graph images from ${url}:`, error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`Error fetching Open Graph images from ${url}:`, {
+      error: errorMessage,
+      isTimeout: errorMessage.includes('timeout') || errorMessage.includes('Fetch timeout'),
+      url: url
+    });
     return [];
   }
 }
@@ -1868,15 +1878,24 @@ async function extractAllImageUrls(tweet: TwitterTweet): Promise<string[]> {
       mediaImages: mediaImages.length,
       ogImages: ogImages.length,
       totalUnique: uniqueImages.length,
+      urlsInTweet: tweet.entities?.urls?.length || 0,
       images: uniqueImages
     });
     
     return uniqueImages;
     
   } catch (error) {
-    console.error('Error in comprehensive image URL extraction:', error);
-    // Fallback to just media images if OG extraction fails
-    return extractImageUrls(tweet);
+    console.error('Error in comprehensive image URL extraction:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      fallbackToMediaOnly: true
+    });
+    // Fallback to just media images if OG extraction fails completely
+    const fallbackImages = extractImageUrls(tweet);
+    console.log('Using fallback media-only extraction:', {
+      mediaImages: fallbackImages.length,
+      images: fallbackImages
+    });
+    return fallbackImages;
   }
 }
 
@@ -1889,12 +1908,12 @@ async function downloadImageFromUrl(imageUrl: string): Promise<{ success: boolea
   try {
     console.log('Downloading image:', imageUrl);
     
-    // Create timeout promise
+    // Create timeout promise (15 seconds for production)
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => {
-        console.log('DEBUG: Image download timed out after 5 seconds');
+        console.log('DEBUG: Image download timed out after 15 seconds');
         reject(new Error('Download timeout'));
-      }, 5000); // Reduced to 5 seconds for faster testing
+      }, 15000); // Increased for production stability
     });
     
     // Create fetch promise
@@ -1950,10 +1969,20 @@ async function downloadImageFromUrl(imageUrl: string): Promise<{ success: boolea
     };
     
   } catch (error) {
-    console.error('DEBUG: Image download failed:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error downloading image';
+    const isTimeout = errorMessage.includes('timeout') || errorMessage.includes('Download timeout');
+    const isNetworkError = errorMessage.includes('fetch') || errorMessage.includes('network');
+    
+    console.error('DEBUG: Image download failed:', {
+      error: errorMessage,
+      imageUrl: imageUrl,
+      isTimeout: isTimeout,
+      isNetworkError: isNetworkError
+    });
+    
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error downloading image'
+      error: errorMessage
     };
   }
 }
