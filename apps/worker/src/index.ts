@@ -2049,19 +2049,163 @@ async function generateTwitterOAuthSignature(
 }
 
 /**
+ * Convert words to their base form (remove past tense, -ing, -s endings)
+ * This helps create more recognizable hashtags
+ */
+function convertToBaseForm(word: string): string {
+  const lowerWord = word.toLowerCase();
+  
+  // Common irregular verb mappings (past -> base)
+  const irregularVerbs: Record<string, string> = {
+    'went': 'go',
+    'ran': 'run',
+    'said': 'say',
+    'came': 'come',
+    'gave': 'give',
+    'took': 'take',
+    'made': 'make',
+    'told': 'tell',
+    'found': 'find',
+    'left': 'leave',
+    'met': 'meet',
+    'brought': 'bring',
+    'began': 'begin',
+    'held': 'hold',
+    'sat': 'sit',
+    'stood': 'stand',
+    'heard': 'hear',
+    'felt': 'feel',
+    'kept': 'keep',
+    'seemed': 'seem',
+    'became': 'become',
+    'thought': 'think',
+    'knew': 'know',
+    'saw': 'see',
+    'got': 'get',
+    'had': 'have',
+    'was': 'be',
+    'were': 'be',
+    'did': 'do',
+    'been': 'be',
+    'done': 'do',
+    'gone': 'go',
+    'seen': 'see',
+    'taken': 'take',
+    'given': 'give',
+    'known': 'know',
+    'shown': 'show',
+    'written': 'write',
+    'spoken': 'speak',
+    'broken': 'break',
+    'chosen': 'choose',
+    'driven': 'drive',
+    'eaten': 'eat',
+    'fallen': 'fall',
+    'forgotten': 'forget',
+    'hidden': 'hide',
+    'ridden': 'ride',
+    'risen': 'rise',
+    'stolen': 'steal',
+    'worn': 'wear',
+    'won': 'win'
+  };
+  
+  // Check irregular verbs first
+  if (irregularVerbs[lowerWord]) {
+    return irregularVerbs[lowerWord];
+  }
+  
+  // Handle regular -ed endings (past tense)
+  if (lowerWord.endsWith('ed') && lowerWord.length > 3) {
+    const base = lowerWord.slice(0, -2);
+    // Handle doubled consonants (e.g., "stopped" -> "stop")
+    if (base.length >= 3 && base[base.length - 1] === base[base.length - 2]) {
+      const consonants = 'bcdfghjklmnpqrstvwxyz';
+      const lastChar = base[base.length - 1];
+      if (consonants.includes(lastChar)) {
+        return base.slice(0, -1);
+      }
+    }
+    return base;
+  }
+  
+  // Handle -ing endings (present participle)
+  if (lowerWord.endsWith('ing') && lowerWord.length > 4) {
+    const base = lowerWord.slice(0, -3);
+    // Handle doubled consonants (e.g., "running" -> "run")
+    if (base.length >= 2 && base[base.length - 1] === base[base.length - 2]) {
+      const consonants = 'bcdfghjklmnpqrstvwxyz';
+      const lastChar = base[base.length - 1];
+      if (consonants.includes(lastChar)) {
+        return base.slice(0, -1);
+      }
+    }
+    return base;
+  }
+  
+  // Handle -ies endings (e.g., "tries" -> "try") - do this before -s handling
+  if (lowerWord.endsWith('ies') && lowerWord.length > 4) {
+    return lowerWord.slice(0, -3) + 'y';
+  }
+  
+  // Handle -es endings (e.g., "goes" -> "go", "does" -> "do")
+  if (lowerWord.endsWith('es') && lowerWord.length > 3) {
+    const base = lowerWord.slice(0, -2);
+    // Common patterns: go->goes, do->does, watch->watches
+    if (['go', 'do'].includes(base) || base.endsWith('ch') || base.endsWith('sh') || base.endsWith('x') || base.endsWith('z')) {
+      return base;
+    }
+  }
+  
+  // Handle -s endings (third person singular)
+  if (lowerWord.endsWith('s') && lowerWord.length > 2 && !lowerWord.endsWith('ss') && !lowerWord.endsWith('es')) {
+    return lowerWord.slice(0, -1);
+  }
+  
+  // Return original word if no conversion applies
+  return lowerWord;
+}
+
+/**
  * Extract meaningful keywords from tweet text for hashtag generation
  */
 function extractKeywordsFromText(tweetText: string): string[] {
   // Common words to filter out (stop words)
   const stopWords = new Set([
+    // Articles, conjunctions, prepositions
     'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+    // Common verbs and auxiliaries
     'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'will', 'would', 'could',
+    // Pronouns
     'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him',
     'her', 'us', 'them', 'my', 'your', 'his', 'its', 'our', 'their', 'can', 'do', 'does', 'did',
+    // Common action words
     'get', 'go', 'going', 'got', 'just', 'now', 'like', 'said', 'say', 'see', 'know', 'think',
     'take', 'come', 'good', 'new', 'first', 'last', 'long', 'great', 'little', 'own', 'other',
     'old', 'right', 'big', 'high', 'different', 'small', 'large', 'next', 'early', 'young',
-    'important', 'few', 'public', 'bad', 'same', 'able', 'rt', 'via'
+    'important', 'few', 'public', 'bad', 'same', 'able', 'rt', 'via',
+    // User-requested additions
+    'yes', 'not', 'never', 'lose', 'sight', 'post', 'exactly', 'ago', 'no', 'officially', 
+    'who', 'what', 'when', 'why', 'getting', 'location', 'read', 'write', 'speak', 'out', 
+    'wait', 'fellow', 'gonna', 'wont', 'how', 'thing', 'one', 'two', 'three', 'four', 'five', 
+    'six', 'seven', 'eight', 'nine', 'ten', 'entire', 'whole', 'half', 'don', 'look', 'aren', 'didn',
+    // Additional similar words
+    'where', 'which', 'whose', 'none', 'nothing', 'nobody', 'nowhere', 'today', 'tomorrow', 
+    'yesterday', 'soon', 'later', 'before', 'after', 'during', 'while', 'won', 'can', 'couldn', 
+    'shouldn', 'wouldn', 'hasn', 'haven', 'wasn', 'weren', 'isn', 'doesn', 'eleven', 'twelve', 
+    'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty',
+    'hundred', 'thousand', 'million', 'make', 'made', 'tell', 'told', 'find', 'found', 'give', 
+    'gave', 'put', 'let', 'set', 'run', 'ran', 'turn', 'work', 'worked', 'play', 'played', 'try', 
+    'tried', 'ask', 'asked', 'help', 'helped', 'show', 'showed', 'move', 'moved', 'live', 'lived', 
+    'feel', 'felt', 'keep', 'kept', 'seem', 'seemed', 'become', 'became', 'leave', 'left', 'meet', 
+    'met', 'bring', 'brought', 'begin', 'began', 'hold', 'held', 'sit', 'sat', 'stand', 'stood', 
+    'hear', 'heard', 'call', 'called', 'talk', 'talked', 'start', 'started', 'end', 'ended', 
+    'open', 'opened', 'close', 'closed', 'change', 'changed', 'follow', 'followed', 'want', 
+    'wanted', 'need', 'needed', 'use', 'used', 'tweet', 'retweet', 'here', 'there', 'then', 
+    'than', 'only', 'also', 'more', 'most', 'much', 'many', 'some', 'any', 'all', 'each', 
+    'every', 'both', 'either', 'neither', 'another', 'such', 'same', 'really', 'very', 'too', 
+    'so', 'well', 'still', 'even', 'back', 'way', 'around', 'down', 'up', 'off', 'over', 
+    'under', 'through', 'into', 'onto', 'from', 'about', 'above', 'below', 'between', 'among'
   ]);
   
   // First, extract capitalized words (proper nouns) from the original text
@@ -2071,8 +2215,9 @@ function extractKeywordsFromText(tweetText: string): string[] {
   if (mentionMatches) {
     mentionMatches.forEach(mention => {
       const word = mention.substring(1); // Remove the @
-      if (word.length >= 3 && word.length <= 15 && !stopWords.has(word.toLowerCase())) {
-        mentionWords.push(word.toLowerCase());
+      const baseForm = convertToBaseForm(word);
+      if (word.length >= 3 && word.length <= 15 && !stopWords.has(baseForm)) {
+        mentionWords.push(baseForm);
       }
     });
   }
@@ -2104,7 +2249,6 @@ function extractKeywordsFromText(tweetText: string): string[] {
         word.length >= 3 && 
         word.length <= 15 &&
         /^[A-Z][a-z]+$/.test(word) && // Starts with capital, rest lowercase
-        !stopWords.has(word.toLowerCase()) &&
         !/^\d+$/.test(word) // Not just numbers
       ) {
         // Skip words that are the first word of a sentence (except the very first sentence)
@@ -2113,7 +2257,10 @@ function extractKeywordsFromText(tweetText: string): string[] {
           continue; // Skip first word of sentences after the first one
         }
         
-        capitalizedWords.push(word.toLowerCase());
+        const baseForm = convertToBaseForm(word);
+        if (!stopWords.has(baseForm)) {
+          capitalizedWords.push(baseForm);
+        }
       }
     }
   }
@@ -2143,18 +2290,20 @@ function extractKeywordsFromText(tweetText: string): string[] {
   // Split into words and filter
   const words = cleanText
     .split(/\s+/)
-    .filter(word => 
-      word.length >= 3 && // At least 3 characters
-      word.length <= 15 && // Not too long
-      !stopWords.has(word) && // Not a stop word
-      !/^\d+$/.test(word) && // Not just numbers
-      /^[a-z]+$/.test(word) // Only letters
-    );
+    .filter(word => {
+      const baseForm = convertToBaseForm(word);
+      return word.length >= 3 && // At least 3 characters
+        word.length <= 15 && // Not too long
+        !stopWords.has(baseForm) && // Not a stop word (check base form)
+        !/^\d+$/.test(word) && // Not just numbers
+        /^[a-z]+$/.test(word); // Only letters
+    });
   
-  // Count word frequency
+  // Count word frequency, converting to base form
   const wordCounts = new Map();
   words.forEach(word => {
-    wordCounts.set(word, (wordCounts.get(word) || 0) + 1);
+    const baseForm = convertToBaseForm(word);
+    wordCounts.set(baseForm, (wordCounts.get(baseForm) || 0) + 1);
   });
   
   // Get frequency-based keywords
