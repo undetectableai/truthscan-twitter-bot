@@ -7610,6 +7610,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       </div>
     </section>` : ''}
     
+    ${data.detection_score !== null && data.detection_score !== undefined ? `
     <!-- AI Detection Confidence Section -->
     <section class="ai-detection-section">
       <div class="header-content">
@@ -7626,7 +7627,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
            <p>• The ${scorePercentage}% confidence score indicates the likelihood that this image was created using AI tools rather than traditional photography or manual creation.</p>`
         }
       </div>
-    </section>
+    </section>` : ''}
     
     <!-- Footer -->
     <footer class="footer">
