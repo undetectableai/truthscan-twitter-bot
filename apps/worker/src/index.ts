@@ -475,13 +475,8 @@ async function logSystemMetric(
 
 /**
  * Simple bot detection based on user agent
- * TEMPORARILY DISABLED FOR TESTING PAGE PROMOTION
  */
 function detectBot(userAgent?: string): boolean {
-  // TEMP: Always return false to test page promotion system
-  return false;
-  
-  /* ORIGINAL CODE - TEMPORARILY COMMENTED OUT
   if (!userAgent) return false;
   
   const botPatterns = [
@@ -492,7 +487,6 @@ function detectBot(userAgent?: string): boolean {
   ];
   
   return botPatterns.some(pattern => pattern.test(userAgent));
-  */
 }
 
 /**
@@ -584,7 +578,7 @@ async function promotePopularPages(env: Env): Promise<{ success: boolean; promot
       LEFT JOIN page_views pv ON d.page_id = pv.page_id
       WHERE d.robots_index = 0 OR d.robots_index IS NULL
       GROUP BY d.page_id, d.id, d.robots_index
-      HAVING COUNT(pv.id) >= 1
+      HAVING COUNT(pv.id) >= 50
       ORDER BY view_count DESC
     `;
     
@@ -1417,6 +1411,33 @@ export default {
             });
           } catch (error) {
             console.error('❌ Direct promotion test failed:', error);
+            return new Response(JSON.stringify({
+              success: false,
+              error: error instanceof Error ? error.message : 'Unknown error',
+              timestamp: new Date().toISOString()
+            }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+
+        case '/api/test/trigger-cron-promotion':
+          try {
+            console.log('🧪 Manual cron job promotion trigger called');
+            
+            // Directly call the same function that the cron job calls
+            await handlePagePromotion(env, _ctx);
+            
+            return new Response(JSON.stringify({
+              success: true,
+              timestamp: new Date().toISOString(),
+              message: "Page promotion cron job triggered manually"
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } catch (error) {
+            console.error('❌ Manual cron promotion trigger failed:', error);
             return new Response(JSON.stringify({
               success: false,
               error: error instanceof Error ? error.message : 'Unknown error',
