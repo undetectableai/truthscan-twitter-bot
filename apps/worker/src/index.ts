@@ -6478,8 +6478,8 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
   const ogImageUrl = `${currentDomain}/thumbnails/${pageId}`;
   const fallbackImageUrl = `${currentDomain}/images/${pageId}`;
   
-  // Accessibility descriptions for images
-  const imageAltText = `AI detection result showing ${scorePercentage}% probability of artificial intelligence generation`;
+  // Accessibility descriptions for images - use dynamic meta description
+  const imageAltText = longDescription;
   
   // Determine robots directive based on database setting (defaults to noindex if not set)
   const robotsDirective = data.robots_index ? 'index, follow' : 'noindex, nofollow';
@@ -7696,7 +7696,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
         <div class="image-section">
           <img 
             src="${currentDomain}/images/${pageId}" 
-            alt="Image analyzed for AI-generated content detection"
+            alt="${imageAltText}"
             class="analyzed-image"
             loading="lazy"
             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
