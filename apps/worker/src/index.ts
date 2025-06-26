@@ -893,7 +893,29 @@ async function pollTwitterMentionsIncremental(
           } else {
             console.log(`No images found in tweet ${tweetId}`);
           }
-          // TODO: Could reply saying no images found
+          
+          // Mark tweet as processed even if no images found to prevent infinite retries
+          const noImageInsertTask = insertDetection(env, {
+            id: crypto.randomUUID(),
+            tweetId: tweetId,
+            timestamp: Date.now(),
+            imageUrl: 'no-images-found',
+            detectionScore: 0,
+            twitterHandle: originalAuthorUsername,
+            responseTweetId: undefined,
+            processingTimeMs: 0,
+            apiProvider: 'none'
+          }).then(result => {
+            if (result.success) {
+              console.log(`✅ Marked tweet ${tweetId} as processed (no images found)`);
+            } else {
+              console.error(`❌ Failed to mark tweet ${tweetId} as processed:`, result);
+            }
+          }).catch(error => {
+            console.error(`Error marking tweet ${tweetId} as processed:`, error);
+          });
+          
+          backgroundTasks.push(noImageInsertTask);
         }
 
       } catch (tweetError) {
@@ -2073,13 +2095,19 @@ function parseOpenGraphImages(html: string, baseUrl: string): string[] {
       try {
         const urlObj = new URL(url);
         const pathname = urlObj.pathname.toLowerCase();
+        const hostname = urlObj.hostname.toLowerCase();
         
         // Check if it looks like an image file or could be a dynamic image
         const hasImageExtension = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?.*)?$/i.test(pathname);
-        const hasImageIndicators = pathname.includes('image') || pathname.includes('photo') || pathname.includes('picture');
+        const hasImageIndicators = pathname.includes('image') || pathname.includes('photo') || pathname.includes('picture') || 
+                                   pathname.includes('thumbnail') || pathname.includes('media') || pathname.includes('og') ||
+                                   hostname.includes('twimg.com') || hostname.includes('pbs.twimg.com');
+        const isDynamicImageService = pathname.includes('/api/') || pathname.includes('/og/') || pathname.includes('/thumbnails/') ||
+                                     hostname.includes('truthscan') || hostname.includes('perplexity');
         const isHttps = urlObj.protocol === 'https:';
         
-        return (hasImageExtension || hasImageIndicators) && isHttps;
+        // Accept if it has extension, image indicators, or is from a known dynamic image service
+        return (hasImageExtension || hasImageIndicators || isDynamicImageService) && isHttps;
       } catch (error) {
         console.log(`Invalid URL found in OG parsing: ${url}`);
         return false;
