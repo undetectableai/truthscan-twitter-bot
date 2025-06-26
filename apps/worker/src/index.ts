@@ -3194,7 +3194,8 @@ async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTw
           twitterHandle: tweetData.username,
           responseTweetId: undefined, // Will be set after consolidated reply
           processingTimeMs: detectionResult.processingTimeMs,
-          apiProvider: 'undetectable.ai'
+          apiProvider: 'undetectable.ai',
+          imageDescription: detectionResult.imageDescription
         });
         void insertResult; // pageId available for future use
         
@@ -3219,7 +3220,8 @@ async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTw
           detectionScore: undefined,
           twitterHandle: tweetData.username,
           processingTimeMs: 0,
-          apiProvider: 'undetectable.ai'
+          apiProvider: 'undetectable.ai',
+          imageDescription: undefined // No description on error
         });
         void insertResult; // pageId available for future use
         
