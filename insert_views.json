@@ -1,0 +1,3 @@
+{
+  "query": "INSERT INTO page_views (id, page_id, timestamp, user_agent, ip_address, is_bot) VALUES ('manual001', '32vi', 1750920000, 'ManualTest/1.0', '192.168.1.200', 0)"
+}

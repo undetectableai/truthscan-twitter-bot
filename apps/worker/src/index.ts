@@ -1202,41 +1202,41 @@ async function handleTwitterPolling(env: Env, ctx: ExecutionContext): Promise<vo
   console.log('🐦 Starting Twitter polling...');
   
   try {
-    // Smart polling: 4 calls per minute, but each call only fetches NEW tweets
-    // This maximizes our Basic plan rate limit while avoiding duplicate processing
-    const pollingPromises: Promise<void>[] = [];
+    // Sequential polling: 4 calls per minute, each call uses the previous call's result
+    // This prevents race conditions and duplicate processing
     let lastProcessedTweetId: string | null = null;
     
-    for (let i = 0; i < 4; i++) {
-      const delayMs = i * 15000; // 0s, 15s, 30s, 45s
-      
-      const pollingPromise = new Promise<void>((resolve) => {
-        setTimeout(async () => {
-          try {
-            console.log(`Starting smart polling call ${i + 1}/4 (${delayMs/1000}s delay)`);
-            const result = await pollTwitterMentionsIncremental(env, ctx, lastProcessedTweetId);
-            
-            // Update the last processed tweet ID for the next call
-            if (result.highestTweetId) {
-              lastProcessedTweetId = result.highestTweetId;
-              console.log(`Updated last processed tweet ID to: ${lastProcessedTweetId}`);
-            }
-            
-            console.log(`Completed smart polling call ${i + 1}/4 - Found ${result.newTweetsCount} new tweets`);
-          } catch (error) {
-            console.error(`Error in smart polling call ${i + 1}/4:`, error);
+    const executeSequentialPolling = async (): Promise<void> => {
+      for (let i = 0; i < 4; i++) {
+        const delayMs = i * 15000; // 0s, 15s, 30s, 45s
+        
+        // Wait for the delay before each call (except the first one)
+        if (delayMs > 0) {
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+        
+        try {
+          console.log(`Starting smart polling call ${i + 1}/4 (${delayMs/1000}s delay)`);
+          const result = await pollTwitterMentionsIncremental(env, ctx, lastProcessedTweetId);
+          
+          // Update the last processed tweet ID for the next call in sequence
+          if (result.highestTweetId) {
+            lastProcessedTweetId = result.highestTweetId;
+            console.log(`Updated last processed tweet ID to: ${lastProcessedTweetId}`);
           }
-          resolve();
-        }, delayMs);
-      });
-      
-      pollingPromises.push(pollingPromise);
-    }
+          
+          console.log(`Completed smart polling call ${i + 1}/4 - Found ${result.newTweetsCount} new tweets`);
+        } catch (error) {
+          console.error(`Error in smart polling call ${i + 1}/4:`, error);
+          // Continue with next polling call even if one fails
+        }
+      }
+    };
     
-    // Use waitUntil to ensure all polling calls complete
-    ctx.waitUntil(Promise.all(pollingPromises));
+    // Use waitUntil to ensure sequential polling completes
+    ctx.waitUntil(executeSequentialPolling());
     
-    console.log('✅ Scheduled 4 smart polling calls (incremental, every 15s) for this minute');
+    console.log('✅ Scheduled 4 sequential smart polling calls (incremental, every 15s) for this minute');
     
   } catch (error) {
     console.error('❌ Error in Twitter polling setup:', error);
@@ -3783,8 +3783,21 @@ async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTw
   try {
     console.log(`Starting optimized batch processing of ${imageUrls.length} images for tweet ${tweetData.tweetId}`);
     
+    // Safety check: Verify this tweet hasn't already been processed to prevent duplicates
+    const alreadyProcessed = await isAlreadyProcessed(tweetData.tweetId, env);
+    if (alreadyProcessed) {
+      console.log(`⚠️ Tweet ${tweetData.tweetId} has already been processed, skipping duplicate processing`);
+      return;
+    }
+    
+    // Deduplicate image URLs again as an extra safety measure
+    const uniqueImageUrls = [...new Set(imageUrls)];
+    if (uniqueImageUrls.length !== imageUrls.length) {
+      console.log(`⚠️ Detected ${imageUrls.length - uniqueImageUrls.length} duplicate image URLs, using ${uniqueImageUrls.length} unique URLs`);
+    }
+    
     // Phase 1: Get AI detection results FAST (for immediate reply)
-    const aiDetectionPromises = imageUrls.map(async (imageUrl, index) => {
+    const aiDetectionPromises = uniqueImageUrls.map(async (imageUrl, index) => {
       const detectionId = crypto.randomUUID();
       const timestamp = Math.floor(Date.now() / 1000);
       
@@ -3981,7 +3994,8 @@ async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTw
     const successfulEnrichments = enrichedResults.filter(r => r.groqResult?.success).length;
     
     console.log('Processing completed:', {
-      totalImages: imageUrls.length,
+      totalImages: uniqueImageUrls.length,
+      originalImageCount: imageUrls.length,
       successfulDetections,
       successfulEnrichments,
       replySuccess: replyResult.success,
