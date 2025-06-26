@@ -1270,6 +1270,167 @@ async function handlePagePromotion(env: Env, ctx: ExecutionContext): Promise<voi
   }
 }
 
+/**
+ * Debug Twitter API authentication and rate limits
+ */
+async function handleTwitterDebug(request: Request, env: Env): Promise<Response> {
+  try {
+    const authResult = requireBasicAuth(request, env);
+    if (authResult) return authResult;
+
+    console.log('🐦 Debugging Twitter API status...');
+
+    const debugInfo: any = {
+      timestamp: new Date().toISOString(),
+      credentials: {
+        hasApiKey: !!env.TWITTER_API_KEY,
+        hasApiKeySecret: !!env.TWITTER_API_KEY_SECRET,
+        hasAccessToken: !!env.TWITTER_ACCESS_TOKEN,
+        hasAccessTokenSecret: !!env.TWITTER_ACCESS_TOKEN_SECRET,
+        hasBearerToken: !!env.TWITTER_BEARER_TOKEN,
+        botUsername: env.TWITTER_BOT_USERNAME || 'not_set'
+      },
+      tests: []
+    };
+
+    // Test 1: Verify credentials endpoint
+    try {
+      const url = 'https://api.twitter.com/1.1/account/verify_credentials.json';
+      const authHeader = await generateTwitterOAuthSignature('GET', url, {}, env);
+      const startTime = Date.now();
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Authorization': authHeader }
+      });
+      
+      const responseBody = await response.text();
+      const processingTime = Date.now() - startTime;
+      
+      debugInfo.tests.push({
+        name: 'verify_credentials',
+        success: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        processingTimeMs: processingTime,
+        rateLimitHeaders: {
+          limit: response.headers.get('x-rate-limit-limit'),
+          remaining: response.headers.get('x-rate-limit-remaining'),
+          reset: response.headers.get('x-rate-limit-reset')
+        },
+        responsePreview: response.ok ? JSON.parse(responseBody) : responseBody.substring(0, 200)
+      });
+    } catch (error) {
+      debugInfo.tests.push({
+        name: 'verify_credentials',
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+
+    // Test 2: Rate limit status endpoint
+    try {
+      const url = 'https://api.twitter.com/1.1/application/rate_limit_status.json?resources=statuses,application';
+      const authHeader = await generateTwitterOAuthSignature('GET', url, {}, env);
+      const startTime = Date.now();
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Authorization': authHeader }
+      });
+      
+      const responseBody = await response.text();
+      const processingTime = Date.now() - startTime;
+      
+      let rateLimitData = null;
+      if (response.ok) {
+        const data = JSON.parse(responseBody);
+        rateLimitData = {
+          statuses: data.resources?.statuses || {},
+          application: data.resources?.application || {}
+        };
+      }
+      
+      debugInfo.tests.push({
+        name: 'rate_limit_status',
+        success: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        processingTimeMs: processingTime,
+        rateLimitHeaders: {
+          limit: response.headers.get('x-rate-limit-limit'),
+          remaining: response.headers.get('x-rate-limit-remaining'),
+          reset: response.headers.get('x-rate-limit-reset')
+        },
+        rateLimitData: rateLimitData || responseBody.substring(0, 200)
+      });
+    } catch (error) {
+      debugInfo.tests.push({
+        name: 'rate_limit_status',
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+
+    // Test 3: Recent tweet posting attempts from database
+    try {
+      const recentAttempts = await env.DB.prepare(`
+        SELECT 
+          tweet_id,
+          response_tweet_id,
+          twitter_handle,
+          timestamp,
+          detection_score
+        FROM detections 
+        WHERE timestamp > ? 
+        ORDER BY timestamp DESC 
+        LIMIT 10
+      `).bind(Math.floor(Date.now() / 1000) - (4 * 60 * 60)).all(); // Last 4 hours
+
+      debugInfo.tests.push({
+        name: 'recent_processing',
+        success: true,
+        recentDetections: recentAttempts.results?.length || 0,
+        successfulReplies: recentAttempts.results?.filter((r: any) => r.response_tweet_id).length || 0,
+        recentData: recentAttempts.results?.slice(0, 5) || []
+      });
+    } catch (error) {
+      debugInfo.tests.push({
+        name: 'recent_processing',
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+
+    // Test 4: Check for the mysterious 1,080,000 rate limit
+    debugInfo.mysteriousRateLimit = {
+      explanation: "The 1,080,000 rate limit is NOT documented in Twitter API v2",
+      expectedLimits: {
+        "POST /2/tweets (Basic Plan)": "100 requests per 24 hours per user",
+        "POST /2/tweets (Free Plan)": "17 requests per 24 hours per user",
+        "POST /2/tweets (Pro Plan)": "100 requests per 15 minutes per user"
+      },
+      recommendation: "This suggests either an API bug, enterprise endpoint, or authentication issue"
+    };
+
+    return new Response(JSON.stringify(debugInfo, null, 2), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    console.error('❌ Twitter debug failed:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     try {
@@ -1559,6 +1720,9 @@ export default {
               headers: { 'Content-Type': 'application/json' }
             });
           }
+
+        case '/api/debug/twitter-status':
+          return await handleTwitterDebug(request, env);
         
         case '/detection/robots.txt':
           return handleRobotsTxt(request, env);
