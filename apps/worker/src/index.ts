@@ -257,11 +257,26 @@ async function logTwitterAPICall(
   
   // Specific console logging for rate limit issues
   if (isRateLimited) {
+    const resetTime = rateLimitHeaders.reset ? new Date(parseInt(rateLimitHeaders.reset) * 1000) : null;
+    const minutesUntilReset = resetTime ? Math.ceil((resetTime.getTime() - Date.now()) / (1000 * 60)) : 'unknown';
+    const limitValue = parseInt(rateLimitHeaders.limit || '0');
+    
+    let limitType = 'UNKNOWN';
+    if (limitValue >= 1000000) limitType = 'MONTHLY/APP_LEVEL';
+    else if (limitValue >= 10000) limitType = 'HOURLY/BURST';
+    else if (limitValue >= 1000) limitType = 'HOURLY';
+    else if (limitValue <= 100) limitType = 'DAILY_USER';
+    
     console.error('🚫 TWITTER RATE LIMIT HIT:', {
       endpoint: endpointType,
       method,
       url,
-      rateLimitHeaders,
+      limitType,
+      rateLimitHeaders: {
+        ...rateLimitHeaders,
+        resetTime: resetTime ? resetTime.toISOString() : 'unknown',
+        minutesUntilReset
+      },
       responseBody: responseBody.substring(0, 200),
       internalTracker: {
         requestCount: twitterRateLimit.requestCount,
@@ -2291,7 +2306,11 @@ async function getPresignedUrl(filename: string, env: Env): Promise<{ success: b
     console.log('DEBUG: Checking API key availability:', !!env.AI_DETECTION_API_KEY);
     console.log('DEBUG: API key first 10 characters:', env.AI_DETECTION_API_KEY?.substring(0, 10) + '...');
     
-    const cleanFilename = filename.replace(/\s+/g, '_'); // Remove spaces as required
+    // Clean filename: remove spaces and Twitter URL parameters like ":large", ":medium", etc.
+    const cleanFilename = filename
+      .replace(/\s+/g, '_') // Remove spaces as required
+      .replace(/:(large|medium|small|orig)$/, '') // Remove Twitter image size suffixes
+      .replace(/[?&].*$/, ''); // Remove any URL parameters
     const url = `https://ai-image-detect.undetectable.ai/get-presigned-url?file_name=${encodeURIComponent(cleanFilename)}`;
     
     console.log('Getting presigned URL for:', cleanFilename);
