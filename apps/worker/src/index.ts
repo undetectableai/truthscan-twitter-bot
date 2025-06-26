@@ -1367,7 +1367,7 @@ export default {
               LEFT JOIN page_views pv ON d.page_id = pv.page_id
               WHERE d.robots_index = 0 OR d.robots_index IS NULL
               GROUP BY d.page_id, d.id, d.robots_index
-              HAVING COUNT(pv.id) >= 1
+              HAVING COUNT(pv.id) >= 5
               ORDER BY view_count DESC
               LIMIT 10
             `;
