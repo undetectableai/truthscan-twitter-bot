@@ -1546,6 +1546,7 @@ interface DetectionResult {
   imageDescription?: string;
   metaDescription?: string;
   detailedDescription?: string;
+  confidenceAnalysis?: string;
 }
 
 /**
@@ -2283,7 +2284,20 @@ async function queryDetectionResults(detectionId: string, maxAttempts = 12, dela
 }
 
 // Main function: Process image with AI detection
-async function processImageWithAI(imageUrl: string, env: Env, tweetText?: string, hashtags?: string[]): Promise<DetectionResult> {
+/**
+ * Process image with AI detection only (for immediate Twitter reply)
+ * This is the fast path that gets AI detection score without waiting for Groq
+ */
+async function processImageWithAIDetection(imageUrl: string, env: Env): Promise<{
+  success: boolean;
+  aiProbability: number;
+  finalResult: string;
+  confidence: number;
+  processingTimeMs: number;
+  imageData?: ArrayBuffer;
+  imageContentType?: string;
+  error?: string;
+}> {
   const startTime = Date.now();
   
   try {
@@ -2349,27 +2363,12 @@ async function processImageWithAI(imageUrl: string, env: Env, tweetText?: string
     // Get image data as ArrayBuffer for database storage
     const imageArrayBuffer = await downloadResult.blob.arrayBuffer();
     
-    // Step 6: Combined Groq analysis - get both title and meta description in one API call
-    console.log('DEBUG: Step 6 - Running combined Groq analysis (title + meta description)...');
-    const groqCombinedResult = await analyzeImageWithGroqCombined(imageUrl, env, tweetText, hashtags);
-    console.log('DEBUG: Combined Groq result:', { 
-      success: groqCombinedResult.success, 
-      title: groqCombinedResult.title, 
-      metaDescription: groqCombinedResult.metaDescription, 
-      metaLength: groqCombinedResult.metaDescription.length, 
-      hashtags: hashtags, 
-      error: groqCombinedResult.error 
-    });
-    
-        console.log('AI detection completed successfully:', {
+    console.log('AI detection completed successfully:', {
       aiProbability: result,
       finalResult,
       confidence,
       processingTimeMs: processingTime,
-      imageSize: imageArrayBuffer.byteLength,
-      imageDescription: groqCombinedResult.title,
-      metaDescription: groqCombinedResult.metaDescription,
-      detailedDescriptionLength: groqCombinedResult.detailedDescription.length
+      imageSize: imageArrayBuffer.byteLength
     });
 
     return {
@@ -2379,10 +2378,7 @@ async function processImageWithAI(imageUrl: string, env: Env, tweetText?: string
       confidence,
       processingTimeMs: processingTime,
       imageData: imageArrayBuffer,
-      imageContentType: downloadResult.contentType || 'image/jpeg',
-      imageDescription: groqCombinedResult.success ? groqCombinedResult.title : undefined,
-      metaDescription: groqCombinedResult.success ? groqCombinedResult.metaDescription : undefined,
-      detailedDescription: groqCombinedResult.success ? groqCombinedResult.detailedDescription : undefined
+      imageContentType: downloadResult.contentType || 'image/jpeg'
     };
     
   } catch (error) {
@@ -2390,6 +2386,77 @@ async function processImageWithAI(imageUrl: string, env: Env, tweetText?: string
     
     // Log API error for monitoring
     await MonitoringEvents.logAPIError(env, 'AI Detection', error, { 
+      imageUrl, 
+      processingTimeMs: processingTime 
+    });
+    
+    return {
+      success: false,
+      aiProbability: 0,
+      finalResult: 'Error',
+      confidence: 0,
+      processingTimeMs: processingTime,
+      error: error instanceof Error ? error.message : 'Unknown detection error'
+    };
+  }
+}
+
+/**
+ * Legacy function - kept for backward compatibility
+ * Calls AI detection + Groq analysis sequentially (slower)
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function processImageWithAI(imageUrl: string, env: Env, tweetText?: string, hashtags?: string[]): Promise<DetectionResult> {
+  const startTime = Date.now();
+  
+  try {
+    // Get AI detection first
+    const aiResult = await processImageWithAIDetection(imageUrl, env);
+    
+    if (!aiResult.success) {
+      return {
+        success: false,
+        aiProbability: aiResult.aiProbability,
+        finalResult: aiResult.finalResult,
+        confidence: aiResult.confidence,
+        processingTimeMs: aiResult.processingTimeMs,
+        error: aiResult.error
+      };
+    }
+    
+    // Now get Groq analysis with the AI detection score
+    console.log('DEBUG: Step 6 - Running combined Groq analysis with AI score...');
+    const groqCombinedResult = await analyzeImageWithGroqCombined(imageUrl, env, aiResult.aiProbability, tweetText, hashtags);
+    console.log('DEBUG: Combined Groq result:', { 
+      success: groqCombinedResult.success, 
+      title: groqCombinedResult.title, 
+      metaDescription: groqCombinedResult.metaDescription, 
+      metaLength: groqCombinedResult.metaDescription.length, 
+      hashtags: hashtags, 
+      error: groqCombinedResult.error 
+    });
+    
+    const totalProcessingTime = Date.now() - startTime;
+
+    return {
+      success: true,
+      aiProbability: aiResult.aiProbability,
+      finalResult: aiResult.finalResult,
+      confidence: aiResult.confidence,
+      processingTimeMs: totalProcessingTime,
+      imageData: aiResult.imageData,
+      imageContentType: aiResult.imageContentType,
+      imageDescription: groqCombinedResult.success ? groqCombinedResult.title : undefined,
+      metaDescription: groqCombinedResult.success ? groqCombinedResult.metaDescription : undefined,
+      detailedDescription: groqCombinedResult.success ? groqCombinedResult.detailedDescription : undefined,
+      confidenceAnalysis: groqCombinedResult.success ? groqCombinedResult.confidenceAnalysis : undefined
+    };
+    
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+    
+    // Log API error for monitoring
+    await MonitoringEvents.logAPIError(env, 'AI Detection Combined', error, { 
       imageUrl, 
       processingTimeMs: processingTime 
     });
@@ -2450,6 +2517,7 @@ interface GroqCombinedAnalysisResult {
   title: string;
   metaDescription: string;
   detailedDescription: string;
+  confidenceAnalysis: string;
   processingTimeMs: number;
   error?: string;
 }
@@ -2459,8 +2527,9 @@ interface GroqCombinedAnalysisResult {
 /**
  * Combined Groq analysis - generates both title and meta description in one API call
  * More efficient than separate calls - saves tokens, latency, and cost
+ * Now includes AI detection score to bias the confidence analysis
  */
-async function analyzeImageWithGroqCombined(imageUrl: string, env: Env, tweetText?: string, hashtags?: string[]): Promise<GroqCombinedAnalysisResult> {
+async function analyzeImageWithGroqCombined(imageUrl: string, env: Env, aiDetectionScore?: number, tweetText?: string, hashtags?: string[]): Promise<GroqCombinedAnalysisResult> {
   const startTime = Date.now();
   
   try {
@@ -2493,20 +2562,23 @@ async function analyzeImageWithGroqCombined(imageUrl: string, env: Env, tweetTex
             content: [
               {
                 type: 'text',
-                text: `Analyze this image and provide exactly three descriptions in this simple format:
+                text: `Analyze this image and provide exactly four descriptions in this simple format:
 
 **Title:** [3-4 word title focusing on the main subject or scene]
 **Meta Description:** [70-80 character description for meta tags, descriptive but concise]
 **Detailed Description:** [A comprehensive 2-3 paragraph analysis describing all visual elements, composition, colors, lighting, mood, subjects, and artistic qualities. Evaluate the technical and aesthetic aspects including textures, patterns, spatial relationships, and any notable artistic techniques. Describe the overall atmosphere and visual impact in rich, engaging detail that would be informative and interesting for viewers across diverse image types including photography, artwork, digital creations, and screenshots.]
+**Confidence Analysis:** [${aiDetectionScore !== undefined ? `This image scored ${Math.round(aiDetectionScore)}% likelihood of being AI-generated. Given this ${Math.round(aiDetectionScore)}% AI-detection score, analyze specific visual elements that support this assessment of being ${Math.round(aiDetectionScore)}% likely AI-generated. Look for characteristics like textures, lighting, proportions, symmetry, and other details that either confirm or explain why this image scored ${Math.round(aiDetectionScore)}% on the AI-detection scale.` : 'Analyze if the image appears unnaturally flawless, idealized, or perfect in ways that suggest AI generation. Look for telltale signs like overly smooth textures, perfect symmetry, impossible lighting, flawless skin, unrealistic proportions, or other artificial characteristics.'} Provide a 2-3 sentence explanation focusing on the visual evidence.]
 
 Examples:
 **Title:** Red Carpet Event
 **Meta Description:** professional headshot of a business executive
 **Detailed Description:** This image captures an elegant red carpet event with sophisticated lighting and formal attire. The composition features well-dressed individuals positioned strategically within the frame, creating a sense of prestige and glamour. The lighting appears professionally managed with warm tones that enhance the luxurious atmosphere, while the red carpet itself serves as a bold visual anchor that draws the eye through the scene.
+**Confidence Analysis:** The image shows natural imperfections in fabric textures and realistic lighting gradients that suggest authentic photography. However, the perfectly coordinated poses and flawless makeup could indicate some digital enhancement or careful staging typical of professional events.
 
 **Title:** Beach Sunset Photo  
 **Meta Description:** sunset landscape with mountains and lake
 **Detailed Description:** A breathtaking coastal landscape showcasing the golden hour's natural beauty with dramatic lighting and serene composition. The sun's position creates stunning silhouettes against mountain ranges, while warm orange and pink hues reflect off the water's surface. The peaceful mood is enhanced by the balanced composition that leads the viewer's eye from foreground elements to the distant horizon.
+**Confidence Analysis:** The lighting appears naturally graduated with realistic atmospheric effects and organic cloud formations. The water reflections show natural distortion patterns and the mountain silhouettes have irregular, authentic edges that strongly suggest this is a genuine photograph rather than AI-generated content.
 
 Do not include any other text or formatting.${contextString}`
               },
@@ -2549,8 +2621,9 @@ Do not include any other text or formatting.${contextString}`
     const titleMatch = content.match(/\*\*Title:\*\*\s*(.+)/i);
     const metaMatch = content.match(/\*\*Meta Description:\*\*\s*(.+)/i);
     const detailedMatch = content.match(/\*\*Detailed Description:\*\*\s*([\s\S]+?)(?=\n\*\*|$)/i);
+    const confidenceMatch = content.match(/\*\*Confidence Analysis:\*\*\s*([\s\S]+?)(?=\n\*\*|$)/i);
     
-    if (!titleMatch || !metaMatch || !detailedMatch) {
+    if (!titleMatch || !metaMatch || !detailedMatch || !confidenceMatch) {
       console.error('Failed to parse Groq Markdown response:', content);
       throw new Error(`Invalid Markdown response from Groq: ${content.substring(0, 200)}...`);
     }
@@ -2558,6 +2631,7 @@ Do not include any other text or formatting.${contextString}`
     const title = titleMatch[1].trim().replace(/[^\w\s-]/g, '').trim();
     const metaDescription = metaMatch[1].trim().replace(/[^\w\s-]/g, '').trim();
     const detailedDescription = detailedMatch[1].trim();
+    const confidenceAnalysis = confidenceMatch[1].trim();
     
     const processingTime = Date.now() - startTime;
 
@@ -2566,6 +2640,7 @@ Do not include any other text or formatting.${contextString}`
       metaDescription,
       metaDescriptionLength: metaDescription.length,
       detailedDescriptionLength: detailedDescription.length,
+      confidenceAnalysisLength: confidenceAnalysis.length,
       processingTimeMs: processingTime
     });
 
@@ -2574,6 +2649,7 @@ Do not include any other text or formatting.${contextString}`
       title,
       metaDescription,
       detailedDescription,
+      confidenceAnalysis,
       processingTimeMs: processingTime
     };
 
@@ -2592,6 +2668,7 @@ Do not include any other text or formatting.${contextString}`
       title: 'Image',
       metaDescription: 'image',
       detailedDescription: 'Image analysis not available',
+      confidenceAnalysis: '',
       processingTimeMs: processingTime,
       error: error instanceof Error ? error.message : 'Unknown Groq Markdown error'
     };
@@ -3271,130 +3348,218 @@ async function getBotUserId(env: Env): Promise<string | null> {
  */
 async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTweetData, env: Env): Promise<void> {
   try {
-    console.log(`Starting batch processing of ${imageUrls.length} images for tweet ${tweetData.tweetId}`);
+    console.log(`Starting optimized batch processing of ${imageUrls.length} images for tweet ${tweetData.tweetId}`);
     
-    // Process all images concurrently
-    const imagePromises = imageUrls.map(async (imageUrl, index) => {
+    // Phase 1: Get AI detection results FAST (for immediate reply)
+    const aiDetectionPromises = imageUrls.map(async (imageUrl, index) => {
       const detectionId = crypto.randomUUID();
       const timestamp = Math.floor(Date.now() / 1000);
       
       try {
-        console.log(`Processing image ${index + 1}/${imageUrls.length}: ${imageUrl}`);
-        const detectionResult = await processImageWithAI(imageUrl, env, tweetData.text, tweetData.hashtags);
-        
-        // Store result in database (without sending individual reply)
-        const insertResult = await insertDetection(env, {
-          id: detectionId,
-          tweetId: tweetData.tweetId,
-          timestamp,
-          imageUrl,
-          detectionScore: detectionResult.success ? detectionResult.aiProbability : undefined,
-          twitterHandle: tweetData.username,
-          responseTweetId: undefined, // Will be set after consolidated reply
-          processingTimeMs: detectionResult.processingTimeMs,
-          apiProvider: 'undetectable.ai',
-          imageDescription: detectionResult.imageDescription,
-          metaDescription: detectionResult.metaDescription,
-          detailedDescription: detectionResult.detailedDescription
-        });
-        void insertResult; // pageId available for future use
-        
-        return {
-          index: index + 1, // 1-based for display
-          success: detectionResult.success,
-          aiProbability: detectionResult.aiProbability,
-          finalResult: detectionResult.finalResult,
-          error: detectionResult.error,
-          detectionId,
-          pageId: insertResult.pageId
-        };
-      } catch (error) {
-        console.error(`Failed to process image ${index + 1}:`, error);
-        
-        // Store error result
-        const insertResult = await insertDetection(env, {
-          id: detectionId,
-          tweetId: tweetData.tweetId,
-          timestamp,
-          imageUrl,
-          detectionScore: undefined,
-          twitterHandle: tweetData.username,
-          processingTimeMs: 0,
-          apiProvider: 'undetectable.ai',
-          imageDescription: undefined, // No description on error
-          metaDescription: undefined, // No meta description on error
-          detailedDescription: undefined // No detailed description on error
-        });
-        void insertResult; // pageId available for future use
+        console.log(`Getting AI detection for image ${index + 1}/${imageUrls.length}: ${imageUrl}`);
+        const aiResult = await processImageWithAIDetection(imageUrl, env);
         
         return {
           index: index + 1,
+          detectionId,
+          timestamp,
+          imageUrl,
+          aiResult,
+          success: aiResult.success,
+          aiProbability: aiResult.aiProbability,
+          finalResult: aiResult.finalResult,
+          error: aiResult.error
+        };
+      } catch (error) {
+        console.error(`Failed to get AI detection for image ${index + 1}:`, error);
+        return {
+          index: index + 1,
+          detectionId,
+          timestamp,
+          imageUrl,
+          aiResult: null,
           success: false,
           aiProbability: 0,
           finalResult: 'Error',
-          error: error instanceof Error ? error.message : 'Processing failed',
-          detectionId,
-          pageId: insertResult.pageId
+          error: error instanceof Error ? error.message : 'AI detection failed'
         };
       }
     });
     
-    // Wait for all images to be processed
-    const results = await Promise.all(imagePromises);
-    console.log(`Completed processing ${results.length} images, preparing consolidated reply`);
+    // Wait for all AI detections to complete
+    const aiResults = await Promise.all(aiDetectionPromises);
+    console.log(`Completed AI detection for ${aiResults.length} images, sending immediate reply`);
     
-    // Create consolidated reply message
-    const replyMessage = composeMultiImageReplyMessage(results, tweetData.hashtags, tweetData.text);
+    // Phase 2: Send immediate Twitter reply (don't wait for Groq)
+    const replyData = aiResults.map(result => ({
+      index: result.index,
+      success: result.success,
+      aiProbability: result.aiProbability,
+      finalResult: result.finalResult,
+      error: result.error,
+      pageId: undefined // Will be filled after database insertion
+    }));
     
-    // Send one consolidated reply
-    try {
-      const replyResult = await replyToTweet(
-        tweetData.tweetId,
-        0, // Not used in multi-image reply
-        '',  // Not used in multi-image reply
-        env,
-        replyMessage // Pass custom message
-      );
-      
-      if (replyResult.success) {
-        console.log('Successfully sent consolidated reply:', {
-          originalTweetId: tweetData.tweetId,
-          replyTweetId: replyResult.replyTweetId,
-          imageCount: results.length
+    const replyMessage = composeMultiImageReplyMessage(replyData, tweetData.hashtags, tweetData.text);
+    
+    // Send reply immediately (async, don't wait)
+    const replyPromise = replyToTweet(
+      tweetData.tweetId,
+      0, // Not used in multi-image reply
+      '',  // Not used in multi-image reply
+      env,
+      replyMessage // Pass custom message
+    );
+    
+    console.log('Sent immediate reply, now processing Groq analysis in background...');
+    
+    // Phase 3: Get Groq analysis with AI detection scores (in background)
+    const enrichmentPromises = aiResults.map(async (result) => {
+      try {
+        if (!result.success || !result.aiResult) {
+          // For failed AI detection, store minimal data
+          const insertResult = await insertDetection(env, {
+            id: result.detectionId,
+            tweetId: tweetData.tweetId,
+            timestamp: result.timestamp,
+            imageUrl: result.imageUrl,
+            detectionScore: undefined,
+            twitterHandle: tweetData.username,
+            responseTweetId: undefined, // Will be set after reply completes
+            processingTimeMs: 0,
+            apiProvider: 'undetectable.ai',
+            imageDescription: undefined,
+            metaDescription: undefined,
+            detailedDescription: undefined,
+            confidenceAnalysis: undefined
+          });
+          
+          return {
+            ...result,
+            pageId: insertResult.pageId,
+            groqResult: null
+          };
+        }
+        
+        // Get Groq analysis with the AI detection score
+        console.log(`Getting Groq analysis for image ${result.index} (${Math.round(result.aiProbability)}% AI)...`);
+        const groqResult = await analyzeImageWithGroqCombined(
+          result.imageUrl, 
+          env, 
+          result.aiProbability, // Pass the AI score to bias the analysis
+          tweetData.text, 
+          tweetData.hashtags
+        );
+        
+        // Store complete result in database
+        const insertResult = await insertDetection(env, {
+          id: result.detectionId,
+          tweetId: tweetData.tweetId,
+          timestamp: result.timestamp,
+          imageUrl: result.imageUrl,
+          detectionScore: result.aiProbability,
+          twitterHandle: tweetData.username,
+          responseTweetId: undefined, // Will be set after reply completes
+          processingTimeMs: result.aiResult.processingTimeMs,
+          apiProvider: 'undetectable.ai',
+          imageData: result.aiResult.imageData,
+          imageContentType: result.aiResult.imageContentType,
+          imageDescription: groqResult.success ? groqResult.title : undefined,
+          metaDescription: groqResult.success ? groqResult.metaDescription : undefined,
+          detailedDescription: groqResult.success ? groqResult.detailedDescription : undefined,
+          confidenceAnalysis: groqResult.success ? groqResult.confidenceAnalysis : undefined
         });
         
-        // Update database records with reply tweet ID
-        if (replyResult.replyTweetId) {
-          const updatePromises = results
-            .filter(result => result.detectionId) // Only update detections with IDs
-            .map(result => 
-              updateDetectionWithReplyId(env, result.detectionId, replyResult.replyTweetId!)
-                .catch(error => {
-                  console.error(`Failed to update detection ${result.detectionId} with reply ID:`, error);
-                  return { success: false, error: error.message };
-                })
-            );
-          
-          // Execute all updates in parallel
-          const updateResults = await Promise.all(updatePromises);
-          const successfulUpdates = updateResults.filter(result => result.success).length;
-          
-          console.log('Database reply ID updates:', {
-            totalDetections: results.length,
-            updatesAttempted: updatePromises.length,
-            updatesSuccessful: successfulUpdates,
-            replyTweetId: replyResult.replyTweetId
-          });
-        }
-      } else {
-        console.error('Failed to send consolidated reply:', replyResult.error);
+        console.log(`Completed enrichment for image ${result.index}, stored as page ID: ${insertResult.pageId}`);
+        
+        return {
+          ...result,
+          pageId: insertResult.pageId,
+          groqResult
+        };
+        
+      } catch (error) {
+        console.error(`Failed to enrich image ${result.index}:`, error);
+        
+        // Store basic result even if enrichment fails
+        const insertResult = await insertDetection(env, {
+          id: result.detectionId,
+          tweetId: tweetData.tweetId,
+          timestamp: result.timestamp,
+          imageUrl: result.imageUrl,
+          detectionScore: result.success ? result.aiProbability : undefined,
+          twitterHandle: tweetData.username,
+          responseTweetId: undefined,
+          processingTimeMs: result.aiResult?.processingTimeMs || 0,
+          apiProvider: 'undetectable.ai',
+          imageData: result.aiResult?.imageData,
+          imageContentType: result.aiResult?.imageContentType,
+          imageDescription: undefined,
+          metaDescription: undefined,
+          detailedDescription: undefined,
+          confidenceAnalysis: undefined
+        });
+        
+        return {
+          ...result,
+          pageId: insertResult.pageId,
+          groqResult: null
+        };
       }
-    } catch (replyError) {
-      console.error('Error sending consolidated reply:', replyError);
+    });
+    
+    // Phase 4: Wait for reply and enrichment to complete
+    const [replyResult, enrichedResults] = await Promise.all([
+      replyPromise,
+      Promise.all(enrichmentPromises)
+    ]);
+    
+    console.log(`Completed processing: AI detection + Groq analysis + database storage for ${enrichedResults.length} images`);
+    
+    // Update database records with reply tweet ID
+    if (replyResult.success && replyResult.replyTweetId) {
+      console.log('Updating database records with reply tweet ID:', replyResult.replyTweetId);
+      
+      const updatePromises = enrichedResults
+        .filter(result => result.detectionId)
+        .map(result => 
+          updateDetectionWithReplyId(env, result.detectionId, replyResult.replyTweetId!)
+            .catch(error => {
+              console.error(`Failed to update detection ${result.detectionId} with reply ID:`, error);
+              return { success: false, error: error.message };
+            })
+        );
+      
+      const updateResults = await Promise.all(updatePromises);
+      const successfulUpdates = updateResults.filter(result => result.success).length;
+      
+      console.log('Database reply ID updates:', {
+        totalDetections: enrichedResults.length,
+        updatesAttempted: updatePromises.length,
+        updatesSuccessful: successfulUpdates,
+        replyTweetId: replyResult.replyTweetId
+      });
+    } else {
+      console.error('Failed to send reply:', replyResult.error);
     }
     
+    // Log final processing summary
+    const successfulDetections = enrichedResults.filter(r => r.success).length;
+    const successfulEnrichments = enrichedResults.filter(r => r.groqResult?.success).length;
+    
+    console.log('Processing completed:', {
+      totalImages: imageUrls.length,
+      successfulDetections,
+      successfulEnrichments,
+      replySuccess: replyResult.success,
+      processingTimelineMs: {
+        immediate_reply: 'sent after AI detection',
+        background_enrichment: 'completed with Groq analysis'
+      }
+    });
+    
   } catch (error) {
-    console.error('Error in batch image processing:', error);
+    console.error('Error in optimized batch image processing:', error);
   }
 }
 
@@ -3768,6 +3933,7 @@ async function insertDetection(env: Env, data: {
   imageDescription?: string;
   metaDescription?: string;
   detailedDescription?: string;
+  confidenceAnalysis?: string;
 }): Promise<{ success: boolean; pageId?: string }> {
   // Generate unique page_id if not provided
   let pageId = data.pageId;
@@ -3787,8 +3953,8 @@ async function insertDetection(env: Env, data: {
     const stmt = env.DB.prepare(`
       INSERT INTO detections (
         id, tweet_id, timestamp, image_url, detection_score, twitter_handle, 
-        response_tweet_id, processing_time_ms, api_provider, page_id, image_description, meta_description, detailed_description
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        response_tweet_id, processing_time_ms, api_provider, page_id, image_description, meta_description, detailed_description, confidence_analysis
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
     const result = await stmt.bind(
@@ -3804,7 +3970,8 @@ async function insertDetection(env: Env, data: {
       pageId || null,
       data.imageDescription || null,
       data.metaDescription || null,
-      data.detailedDescription || null
+      data.detailedDescription || null,
+      data.confidenceAnalysis || null
     ).run();
     
     console.log('Detection inserted:', { 
@@ -4420,7 +4587,7 @@ async function handleGroqTest(_request: Request, env: Env): Promise<Response> {
     
     // Test with a sample image URL
     const testImageUrl = 'https://pbs.twimg.com/media/F0pKk50WcAE4337.jpg';
-    const groqResult = await analyzeImageWithGroqCombined(testImageUrl, env, 'Test image for Groq API verification', ['test', 'verification']);
+    const groqResult = await analyzeImageWithGroqCombined(testImageUrl, env, undefined, 'Test image for Groq API verification', ['test', 'verification']);
     
     return new Response(JSON.stringify({
       success: true,
@@ -6647,11 +6814,29 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       </div>
     </section>` : ''}
     
+    <!-- AI Detection Confidence Section -->
+    <section class="photo-description-section">
+      <div class="header-content">
+        <h2 class="header-title">
+          <span class="header-title-rest">Why It's Likely AI-Generated (${scorePercentage}% Confidence)</span>
+        </h2>
+      </div>
+      
+      <!-- AI Detection Explanation Text -->
+      <div class="detailed-description">
+        ${data.confidence_analysis ? 
+          `<p>• ${data.confidence_analysis}</p>` : 
+          `<p>• This analysis is based on artificial intelligence algorithms that examine various visual characteristics including patterns, textures, artifacts, and inconsistencies typically associated with AI-generated content.</p>
+           <p>• The ${scorePercentage}% confidence score indicates the likelihood that this image was created using AI tools rather than traditional photography or manual creation.</p>`
+        }
+      </div>
+    </section>
+    
     <!-- Footer -->
     <footer class="footer">
       <p>
         Powered by <a href="https://truthscan.com/ai-image-detector" target="_blank" rel="noopener noreferrer">TruthScan</a> 
-        • AI detection results are estimates and should not be considered definitive
+        ⚠️ This result is generated by an AI model and may contain inaccuracies. It does not constitute a definitive or factual claim about the content or its creator.
       </p>
     </footer>
   </div>
@@ -6753,7 +6938,7 @@ async function getDetectionByPageId(pageId: string, env: Env): Promise<{ data: a
       SELECT 
         id, tweet_id, timestamp, image_url, detection_score, twitter_handle, 
         response_tweet_id, processing_time_ms, api_provider, page_id, 
-        created_at, updated_at, robots_index, image_description, meta_description, detailed_description
+        created_at, updated_at, robots_index, image_description, meta_description, detailed_description, confidence_analysis
       FROM detections 
       WHERE page_id = ? 
       LIMIT 1
