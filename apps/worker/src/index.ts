@@ -1340,6 +1340,52 @@ export default {
         case '/api/monitoring/dashboard':
           return handleMonitoringDashboard(request, env);
           
+        case '/api/test/direct-promotion-query':
+          try {
+            console.log('🧪 Direct promotion query test called');
+            
+            // Run the exact same query as the promotion function
+            const query = `
+              SELECT 
+                d.page_id,
+                d.id as detection_id,
+                COUNT(pv.id) as view_count,
+                d.robots_index
+              FROM detections d
+              LEFT JOIN page_views pv ON d.page_id = pv.page_id
+              WHERE d.robots_index = 0 OR d.robots_index IS NULL
+              GROUP BY d.page_id, d.id, d.robots_index
+              HAVING COUNT(pv.id) >= 5
+              ORDER BY view_count DESC
+            `;
+            
+            const result = await env.DB.prepare(query).all();
+            
+            return new Response(JSON.stringify({
+              success: true,
+              timestamp: new Date().toISOString(),
+              queryResults: {
+                success: result.success,
+                resultsLength: result.results?.length || 0,
+                meta: result.meta,
+                results: result.results || []
+              }
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } catch (error) {
+            console.error('❌ Direct promotion query test failed:', error);
+            return new Response(JSON.stringify({
+              success: false,
+              error: error instanceof Error ? error.message : 'Unknown error',
+              timestamp: new Date().toISOString()
+            }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+
         case '/api/test/manual-page-promotion':
           try {
             console.log('🧪 Manual page promotion trigger called');
