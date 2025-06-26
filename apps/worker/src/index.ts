@@ -1271,6 +1271,139 @@ async function handlePagePromotion(env: Env, ctx: ExecutionContext): Promise<voi
 }
 
 /**
+ * Test Undetectable AI API directly
+ */
+async function handleUndetectableAITest(request: Request, env: Env): Promise<Response> {
+  try {
+    const authResult = requireBasicAuth(request, env);
+    if (authResult) return authResult;
+
+    console.log('🧪 Testing Undetectable.AI API directly...');
+
+    // Use a simple test image URL (Twitter image)
+    const testImageUrl = 'https://pbs.twimg.com/media/GuWeX2sW4AA_ZhI.jpg';
+    
+    const testResult = {
+      timestamp: new Date().toISOString(),
+      apiKey: {
+        exists: !!env.AI_DETECTION_API_KEY,
+        preview: env.AI_DETECTION_API_KEY ? env.AI_DETECTION_API_KEY.substring(0, 10) + '...' : 'undefined'
+      },
+      testSteps: {} as any
+    };
+
+    // Step 1: Download image
+    console.log('🔧 Step 1: Testing image download...');
+    const downloadResult = await downloadImageFromUrl(testImageUrl);
+    testResult.testSteps.step1_download = {
+      success: downloadResult.success,
+      error: downloadResult.error,
+      hasBlob: !!downloadResult.blob,
+      hasFilename: !!downloadResult.filename,
+      contentType: downloadResult.contentType
+    };
+
+    if (!downloadResult.success || !downloadResult.blob || !downloadResult.filename) {
+      return Response.json({
+        success: false,
+        error: 'Step 1 failed: Image download',
+        details: testResult
+      });
+    }
+
+    // Step 2: Get presigned URL
+    console.log('🔧 Step 2: Testing presigned URL...');
+    const presignedResult = await getPresignedUrl(downloadResult.filename, env);
+    testResult.testSteps.step2_presigned = {
+      success: presignedResult.success,
+      error: presignedResult.error,
+      hasData: !!presignedResult.data
+    };
+
+    if (!presignedResult.success || !presignedResult.data) {
+      return Response.json({
+        success: false,
+        error: 'Step 2 failed: Presigned URL',
+        details: testResult
+      });
+    }
+
+    // Step 3: Upload image
+    console.log('🔧 Step 3: Testing image upload...');
+    const uploadResult = await uploadImageToPresignedUrl(
+      presignedResult.data.presigned_url,
+      downloadResult.blob,
+      downloadResult.contentType || 'image/jpeg'
+    );
+    testResult.testSteps.step3_upload = {
+      success: uploadResult.success,
+      error: uploadResult.error
+    };
+
+    if (!uploadResult.success) {
+      return Response.json({
+        success: false,
+        error: 'Step 3 failed: Image upload',
+        details: testResult
+      });
+    }
+
+    // Step 4: Submit for detection
+    console.log('🔧 Step 4: Testing detection submission...');
+    const submissionResult = await submitImageForDetection(presignedResult.data.file_path, env);
+    testResult.testSteps.step4_submission = {
+      success: submissionResult.success,
+      error: submissionResult.error,
+      detectionId: submissionResult.data?.id
+    };
+
+    if (!submissionResult.success || !submissionResult.data) {
+      return Response.json({
+        success: false,
+        error: 'Step 4 failed: Detection submission',
+        details: testResult
+      });
+    }
+
+    // Step 5: Query results
+    console.log('🔧 Step 5: Testing results query...');
+    const queryResult = await queryDetectionResults(submissionResult.data.id);
+    testResult.testSteps.step5_query = {
+      success: queryResult.success,
+      error: queryResult.error,
+      status: queryResult.data?.status,
+      result: queryResult.data?.result,
+      finalResult: queryResult.data?.result_details?.final_result
+    };
+
+    const overallSuccess = queryResult.success && queryResult.data?.status === 'done';
+
+    return Response.json({
+      success: overallSuccess,
+      message: overallSuccess ? 'Undetectable.AI API is working correctly!' : 'Undetectable.AI API test failed',
+      testImageUrl,
+      aiDetectionResult: overallSuccess ? {
+        probability: queryResult.data?.result,
+        finalResult: queryResult.data?.result_details?.final_result,
+        confidence: queryResult.data?.result_details?.confidence
+      } : null,
+      details: testResult
+    });
+
+  } catch (error) {
+    console.error('🧪 Undetectable.AI test failed:', error);
+    return Response.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown test error',
+      details: {
+        timestamp: new Date().toISOString(),
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    }, { status: 500 });
+  }
+}
+
+/**
  * Debug Twitter API authentication and rate limits
  */
 async function handleTwitterDebug(request: Request, env: Env): Promise<Response> {
@@ -1723,6 +1856,9 @@ export default {
 
         case '/api/debug/twitter-status':
           return await handleTwitterDebug(request, env);
+
+        case '/api/test/undetectable-ai':
+          return await handleUndetectableAITest(request, env);
         
         case '/detection/robots.txt':
           return handleRobotsTxt(request, env);
