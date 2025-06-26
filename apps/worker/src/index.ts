@@ -3303,9 +3303,9 @@ async function replyToTweet(
       }
     };
     
-    // Use Bearer Token for app-level authentication (1667/day limit vs 100/day user limit)
+    // Generate OAuth signature for POST request
     const url = 'https://api.twitter.com/2/tweets';
-    const authHeader = `Bearer ${env.TWITTER_BEARER_TOKEN}`;
+    const authHeader = await generateTwitterOAuthSignature('POST', url, {}, env);
     
     // Post the reply using Twitter API v2
     const startTime = Date.now();
@@ -3405,9 +3405,9 @@ async function likeTweet(
       tweet_id: tweetId
     };
     
-    // Use Bearer Token for app-level authentication (1667/day limit vs 100/day user limit)
+    // Generate OAuth signature for POST request
     const url = `https://api.twitter.com/2/users/${botUserId}/likes`;
-    const authHeader = `Bearer ${env.TWITTER_BEARER_TOKEN}`;
+    const authHeader = await generateTwitterOAuthSignature('POST', url, {}, env);
     
     // Post the like using Twitter API v2
     const startTime = Date.now();
