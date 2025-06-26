@@ -3294,7 +3294,8 @@ async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTw
           processingTimeMs: detectionResult.processingTimeMs,
           apiProvider: 'undetectable.ai',
           imageDescription: detectionResult.imageDescription,
-          metaDescription: detectionResult.metaDescription
+          metaDescription: detectionResult.metaDescription,
+          detailedDescription: detectionResult.detailedDescription
         });
         void insertResult; // pageId available for future use
         
@@ -3321,7 +3322,8 @@ async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTw
           processingTimeMs: 0,
           apiProvider: 'undetectable.ai',
           imageDescription: undefined, // No description on error
-          metaDescription: undefined // No meta description on error
+          metaDescription: undefined, // No meta description on error
+          detailedDescription: undefined // No detailed description on error
         });
         void insertResult; // pageId available for future use
         
@@ -3785,8 +3787,8 @@ async function insertDetection(env: Env, data: {
     const stmt = env.DB.prepare(`
       INSERT INTO detections (
         id, tweet_id, timestamp, image_url, detection_score, twitter_handle, 
-        response_tweet_id, processing_time_ms, api_provider, page_id, image_description, meta_description
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        response_tweet_id, processing_time_ms, api_provider, page_id, image_description, meta_description, detailed_description
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
     const result = await stmt.bind(
@@ -3801,7 +3803,8 @@ async function insertDetection(env: Env, data: {
       data.apiProvider || null,
       pageId || null,
       data.imageDescription || null,
-      data.metaDescription || null
+      data.metaDescription || null,
+      data.detailedDescription || null
     ).run();
     
     console.log('Detection inserted:', { 
@@ -4064,7 +4067,8 @@ async function testDatabaseUniqueness(env: Env, testCount: number = 100): Promis
           detectionScore: 0.5,
           twitterHandle: `testuser${i}`,
           apiProvider: 'test',
-          pageId: pageId // Use the generated page_id
+          pageId: pageId, // Use the generated page_id
+          detailedDescription: undefined // Test data
         });
         
         if (testResult.success) {
@@ -4469,7 +4473,8 @@ async function handleDatabaseUpdatesTest(_request: Request, env: Env): Promise<R
       detectionScore: 75,
       twitterHandle: 'test_user',
       apiProvider: 'test-api',
-      pageId: testPageId
+      pageId: testPageId,
+      detailedDescription: undefined // Test data
     });
 
     if (!insertResult.success) {
