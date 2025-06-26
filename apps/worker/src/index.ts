@@ -6627,6 +6627,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       </section>
     </main>
     
+    ${data.detailed_description ? `
     <!-- Photo Description Section -->
     <section class="photo-description-section">
       <div class="header-content">
@@ -6637,9 +6638,9 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       
       <!-- Detailed Description Text -->
       <div class="detailed-description">
-        <p>This feature is coming soon. We will display detailed AI-generated image analysis here.</p>
+        <p>${data.detailed_description}</p>
       </div>
-    </section>
+    </section>` : ''}
     
     <!-- Footer -->
     <footer class="footer">
@@ -6747,7 +6748,7 @@ async function getDetectionByPageId(pageId: string, env: Env): Promise<{ data: a
       SELECT 
         id, tweet_id, timestamp, image_url, detection_score, twitter_handle, 
         response_tweet_id, processing_time_ms, api_provider, page_id, 
-        created_at, updated_at, robots_index, image_description, meta_description
+        created_at, updated_at, robots_index, image_description, meta_description, detailed_description
       FROM detections 
       WHERE page_id = ? 
       LIMIT 1
