@@ -1545,6 +1545,7 @@ interface DetectionResult {
   imageContentType?: string;
   imageDescription?: string;
   metaDescription?: string;
+  detailedDescription?: string;
 }
 
 /**
@@ -2360,16 +2361,17 @@ async function processImageWithAI(imageUrl: string, env: Env, tweetText?: string
       error: groqCombinedResult.error 
     });
     
-    console.log('AI detection completed successfully:', {
+        console.log('AI detection completed successfully:', {
       aiProbability: result,
       finalResult,
       confidence,
       processingTimeMs: processingTime,
       imageSize: imageArrayBuffer.byteLength,
       imageDescription: groqCombinedResult.title,
-      metaDescription: groqCombinedResult.metaDescription
+      metaDescription: groqCombinedResult.metaDescription,
+      detailedDescriptionLength: groqCombinedResult.detailedDescription.length
     });
-    
+
     return {
       success: true,
       aiProbability: result,
@@ -2379,7 +2381,8 @@ async function processImageWithAI(imageUrl: string, env: Env, tweetText?: string
       imageData: imageArrayBuffer,
       imageContentType: downloadResult.contentType || 'image/jpeg',
       imageDescription: groqCombinedResult.success ? groqCombinedResult.title : undefined,
-      metaDescription: groqCombinedResult.success ? groqCombinedResult.metaDescription : undefined
+      metaDescription: groqCombinedResult.success ? groqCombinedResult.metaDescription : undefined,
+      detailedDescription: groqCombinedResult.success ? groqCombinedResult.detailedDescription : undefined
     };
     
   } catch (error) {
@@ -2446,6 +2449,7 @@ interface GroqCombinedAnalysisResult {
   success: boolean;
   title: string;
   metaDescription: string;
+  detailedDescription: string;
   processingTimeMs: number;
   error?: string;
 }
@@ -2489,18 +2493,22 @@ async function analyzeImageWithGroqCombined(imageUrl: string, env: Env, tweetTex
             content: [
               {
                 type: 'text',
-                text: `Analyze this image and provide exactly two descriptions in JSON format:
+                text: `Analyze this image and provide exactly three descriptions in this simple format:
 
-1. "title": A concise 3-4 word title focusing on the main subject or scene (e.g., "Red Carpet Event", "Beach Sunset Photo", "City Street Scene")
-2. "metaDescription": A 70-80 character description for meta tags, descriptive but concise (e.g., "professional headshot of a business executive", "sunset landscape with mountains and lake")
+**Title:** [3-4 word title focusing on the main subject or scene]
+**Meta Description:** [70-80 character description for meta tags, descriptive but concise]
+**Detailed Description:** [A comprehensive 2-3 paragraph analysis describing all visual elements, composition, colors, lighting, mood, subjects, and artistic qualities. Evaluate the technical and aesthetic aspects including textures, patterns, spatial relationships, and any notable artistic techniques. Describe the overall atmosphere and visual impact in rich, engaging detail that would be informative and interesting for viewers across diverse image types including photography, artwork, digital creations, and screenshots.]
 
-Return ONLY valid JSON in this format:
-{
-  "title": "3-4 word title here",
-  "metaDescription": "70-80 character description here"
-}
+Examples:
+**Title:** Red Carpet Event
+**Meta Description:** professional headshot of a business executive
+**Detailed Description:** This image captures an elegant red carpet event with sophisticated lighting and formal attire. The composition features well-dressed individuals positioned strategically within the frame, creating a sense of prestige and glamour. The lighting appears professionally managed with warm tones that enhance the luxurious atmosphere, while the red carpet itself serves as a bold visual anchor that draws the eye through the scene.
 
-Do not include any other text or punctuation at the end of descriptions.${contextString}`
+**Title:** Beach Sunset Photo  
+**Meta Description:** sunset landscape with mountains and lake
+**Detailed Description:** A breathtaking coastal landscape showcasing the golden hour's natural beauty with dramatic lighting and serene composition. The sun's position creates stunning silhouettes against mountain ranges, while warm orange and pink hues reflect off the water's surface. The peaceful mood is enhanced by the balanced composition that leads the viewer's eye from foreground elements to the distant horizon.
+
+Do not include any other text or formatting.${contextString}`
               },
               {
                 type: 'image_url',
@@ -2512,7 +2520,7 @@ Do not include any other text or punctuation at the end of descriptions.${contex
           }
         ],
         temperature: 0.3,
-        max_completion_tokens: 150,
+        max_completion_tokens: 500,
         top_p: 1,
         stream: false
       })
@@ -2534,17 +2542,22 @@ Do not include any other text or punctuation at the end of descriptions.${contex
     const content = data.choices?.[0]?.message?.content?.trim() || '{}';
     console.log('Raw Groq response:', content);
 
-    // Parse JSON response
-    let parsedResult;
-    try {
-      parsedResult = JSON.parse(content);
-    } catch (parseError) {
-      console.error('Failed to parse Groq JSON response:', content);
-      throw new Error('Invalid JSON response from Groq');
+    // Parse Markdown response using regex
+    console.log('DEBUG: Raw Groq response content:', JSON.stringify(content));
+    console.log('DEBUG: Response length:', content.length);
+    
+    const titleMatch = content.match(/\*\*Title:\*\*\s*(.+)/i);
+    const metaMatch = content.match(/\*\*Meta Description:\*\*\s*(.+)/i);
+    const detailedMatch = content.match(/\*\*Detailed Description:\*\*\s*([\s\S]+?)(?=\n\*\*|$)/i);
+    
+    if (!titleMatch || !metaMatch || !detailedMatch) {
+      console.error('Failed to parse Groq Markdown response:', content);
+      throw new Error(`Invalid Markdown response from Groq: ${content.substring(0, 200)}...`);
     }
 
-    const title = (parsedResult.title || 'Image').replace(/[^\w\s-]/g, '').trim();
-    const metaDescription = (parsedResult.metaDescription || 'image').replace(/[^\w\s-]/g, '').trim();
+    const title = titleMatch[1].trim().replace(/[^\w\s-]/g, '').trim();
+    const metaDescription = metaMatch[1].trim().replace(/[^\w\s-]/g, '').trim();
+    const detailedDescription = detailedMatch[1].trim();
     
     const processingTime = Date.now() - startTime;
 
@@ -2552,6 +2565,7 @@ Do not include any other text or punctuation at the end of descriptions.${contex
       title,
       metaDescription,
       metaDescriptionLength: metaDescription.length,
+      detailedDescriptionLength: detailedDescription.length,
       processingTimeMs: processingTime
     });
 
@@ -2559,6 +2573,7 @@ Do not include any other text or punctuation at the end of descriptions.${contex
       success: true,
       title,
       metaDescription,
+      detailedDescription,
       processingTimeMs: processingTime
     };
 
@@ -2567,7 +2582,7 @@ Do not include any other text or punctuation at the end of descriptions.${contex
     console.error('Combined Groq analysis failed:', error);
     
     // Log API error for monitoring
-    await MonitoringEvents.logAPIError(env, 'Groq Combined Analysis', error, { 
+    await MonitoringEvents.logAPIError(env, 'Groq Combined Markdown Analysis', error, { 
       imageUrl, 
       processingTimeMs: processingTime 
     });
@@ -2576,8 +2591,9 @@ Do not include any other text or punctuation at the end of descriptions.${contex
       success: false,
       title: 'Image',
       metaDescription: 'image',
+      detailedDescription: 'Image analysis not available',
       processingTimeMs: processingTime,
-      error: error instanceof Error ? error.message : 'Unknown Groq error'
+      error: error instanceof Error ? error.message : 'Unknown Groq Markdown error'
     };
   }
 }
@@ -3749,6 +3765,7 @@ async function insertDetection(env: Env, data: {
   imageContentType?: string;
   imageDescription?: string;
   metaDescription?: string;
+  detailedDescription?: string;
 }): Promise<{ success: boolean; pageId?: string }> {
   // Generate unique page_id if not provided
   let pageId = data.pageId;
@@ -5757,11 +5774,12 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     
     .header-content {
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
       max-width: 1200px;
       margin: 0 auto;
-      gap: var(--space-3);
+      gap: 0;
     }
     
     .logo-image {
@@ -5775,8 +5793,8 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     }
     
     .header-title {
-      font-size: 1.875rem;
-      line-height: 2.25rem;
+      font-size: 1rem;
+      line-height: 1.25rem;
       font-weight: 600;
       flex-shrink: 0;
       display: flex;
@@ -5802,6 +5820,49 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       color: transparent;
+    }
+    
+    /* Brand line styling */
+    .brand-line {
+      margin-top: var(--space-4);
+      text-align: center;
+    }
+    
+    /* Photo description section styling */
+    .photo-description-section {
+      padding: var(--spacing-xl) var(--spacing-lg);
+      margin-top: var(--spacing-xl);
+      margin-bottom: var(--spacing-lg);
+      text-align: center;
+    }
+    
+    .detailed-description {
+      margin-top: var(--spacing-lg);
+      text-align: left;
+      max-width: 800px;
+      margin-left: auto;
+      margin-right: auto;
+      line-height: 1.6;
+      color: var(--text-color);
+    }
+    
+    .detailed-description p {
+      margin-bottom: 1rem;
+      font-size: 1rem;
+      line-height: 1.6;
+    }
+    
+    .header-brand {
+      font-size: 1.5rem;
+      line-height: 1.875rem;
+      font-weight: 600;
+      flex-shrink: 0;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0;
     }
     
     /* Main Container */
@@ -6109,8 +6170,23 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       }
       
       .header-title {
-        font-size: 2.25rem;
-        line-height: 2.75rem;
+        font-size: 1.5rem;
+        line-height: 1.875rem;
+      }
+      
+      .header-brand {
+        font-size: 1.875rem;
+        line-height: 2.25rem;
+      }
+      
+      .brand-line {
+        margin-top: var(--space-6);
+      }
+      
+      .photo-description-section {
+        padding: calc(var(--spacing-xl) * 1.2) var(--spacing-lg);
+        margin-top: calc(var(--spacing-xl) * 1.2);
+        margin-bottom: var(--spacing-lg);
       }
       
       .container {
@@ -6206,8 +6282,17 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       }
       
       .header-title {
-        font-size: 2.5rem;
-        line-height: 3rem;
+        font-size: 1.5rem;
+        line-height: 1.875rem;
+      }
+      
+      .header-brand {
+        font-size: 2rem;
+        line-height: 2.5rem;
+      }
+      
+      .brand-line {
+        margin-top: var(--space-8);
       }
       
 
@@ -6303,8 +6388,8 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       }
       
       .header-title {
-        font-size: 1.5rem;
-        line-height: 2rem;
+        font-size: 0.75rem;
+        line-height: 1rem;
         text-align: center;
         gap: 0;
         flex-direction: column;
@@ -6322,6 +6407,31 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       .header-title-rest {
         margin-top: 0.25rem;
         line-height: 1.25;
+      }
+      
+      .header-brand {
+        font-size: 1.25rem;
+        line-height: 1.5rem;
+      }
+      
+      .brand-line {
+        margin-top: var(--space-3);
+      }
+      
+      .photo-description-section {
+        padding: 0 !important;
+        margin-top: calc(var(--spacing-lg) * 0.7);
+        margin-bottom: calc(var(--spacing-lg) * 0.7);
+      }
+      
+      .detailed-description {
+        margin-top: calc(var(--spacing-lg) * 0.7);
+        padding: 0;
+        font-size: 0.875rem;
+      }
+      
+      .detailed-description p {
+        font-size: 0.875rem;
       }
       
 
@@ -6423,18 +6533,24 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
 <body>
   <!-- Page Header -->
   <header class="page-header">
-    <a href="https://truthscan.com/ai-image-detector" class="header-link" target="_blank" rel="noopener noreferrer">
-      <div class="header-content">
-        <!-- Header Title with Gradient -->
-        <h1 class="header-title">
-          <span class="header-title-truthscan">
-            <img src="${backendDomain}/logo.png" alt="TruthScan Logo" class="logo-image" width="38" height="29">
-            TruthScan
-          </span>
-          <span class="header-title-rest">AI Image Detection Results</span>
-        </h1>
+    <div class="header-content">
+      <!-- Main H1 with Groq title + AI Image Detection Results -->
+      <h1 class="header-title">
+        <span class="header-title-rest">${data.image_description && data.image_description !== 'Image' ? data.image_description + ' ' : ''}AI Image Detection Results</span>
+      </h1>
+      
+      <!-- TruthScan Brand as H2 - One line below H1 -->
+      <div class="brand-line">
+        <a href="https://truthscan.com/ai-image-detector" class="header-link" target="_blank" rel="noopener noreferrer">
+          <h2 class="header-brand">
+            <span class="header-title-truthscan">
+              <img src="${backendDomain}/logo.png" alt="TruthScan Logo" class="logo-image" width="38" height="29">
+              TruthScan
+            </span>
+          </h2>
+        </a>
       </div>
-    </a>
+    </div>
   </header>
 
   <div class="container">
@@ -6510,6 +6626,20 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
         </div>
       </section>
     </main>
+    
+    <!-- Photo Description Section -->
+    <section class="photo-description-section">
+      <div class="header-content">
+        <h2 class="header-title">
+          <span class="header-title-rest">Photo Description – ${data.image_description && data.image_description !== 'Image' ? data.image_description : 'Image Analysis'}</span>
+        </h2>
+      </div>
+      
+      <!-- Detailed Description Text -->
+      <div class="detailed-description">
+        <p>This feature is coming soon. We will display detailed AI-generated image analysis here.</p>
+      </div>
+    </section>
     
     <!-- Footer -->
     <footer class="footer">
