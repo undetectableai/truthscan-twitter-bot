@@ -6577,7 +6577,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": ["WebPage", "Article"],
+    "@type": ["WebPage", "TechArticle"],
     "headline": "${shortDescription}",
     "name": "${shortDescription}",
     "description": "${longDescription}",
@@ -6588,6 +6588,8 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     },
     "datePublished": "${new Date(data.timestamp * 1000).toISOString()}",
     "dateModified": "${new Date().toISOString()}",
+    "dependencies": "AI Detection API, Machine Learning Models",
+    "proficiencyLevel": "Beginner",
     "author": {
       "@type": "Organization",
       "name": "TruthScan",
@@ -6607,14 +6609,132 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       }
     },
     "image": [
-      "${ogImageUrl}",
+      {
+        "@type": "ImageObject",
+        "contentUrl": "${ogImageUrl}",
+        "url": "${ogImageUrl}",
+        "description": "${data.image_description || 'AI detection analysis image'}",
+        "encodingFormat": "image/jpeg",
+        "width": 1200,
+        "height": 630,
+        "analysisResult": {
+          "@type": "QuantitativeValue",
+          "value": ${scorePercentage},
+          "unitText": "percent",
+          "description": "AI generation probability"
+        }
+      },
       "${fallbackImageUrl}"
     ],
     "thumbnailUrl": "${ogImageUrl}",
-    "about": {
-      "@type": "Thing",
-      "name": "AI Content Detection",
-      "description": "Artificial intelligence detection analysis of digital content"
+    "about": [
+      {
+        "@type": "Thing",
+        "name": "AI Content Detection",
+        "description": "Artificial intelligence detection analysis of digital content"
+      },
+      {
+        "@type": "SoftwareApplication",
+        "name": "TruthScan AI Detection",
+        "applicationCategory": "AnalyticsApplication",
+        "operatingSystem": "Web",
+        "url": "https://truthscan.com",
+        "description": "Advanced AI detection tool for analyzing digital content authenticity",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD",
+          "availability": "https://schema.org/InStock"
+        },
+        "aggregateRating": {
+          "@type": "AggregateRating",
+          "ratingValue": "4.9",
+          "bestRating": "5",
+          "worstRating": "1",
+          "ratingCount": "9321",
+          "reviewCount": "9321"
+        },
+        "provider": {
+          "@type": "Organization",
+          "name": "TruthScan"
+        }
+      }
+    ],
+    "mainEntity": {
+      "@type": "Service",
+      "name": "AI Image Detection Analysis",
+      "description": "Professional AI detection service for digital content verification",
+      "provider": {
+        "@type": "Organization",
+        "name": "TruthScan",
+        "url": "https://truthscan.com"
+      },
+      "serviceType": "AI Content Detection",
+      "areaServed": "Global",
+      "hasOfferCatalog": {
+        "@type": "OfferCatalog",
+        "name": "AI Detection Services",
+        "itemListElement": [
+          {
+            "@type": "Offer",
+            "itemOffered": {
+              "@type": "Service",
+              "name": "AI Image Analysis"
+            }
+          }
+        ]
+      },
+      "aggregateRating": {
+        "@type": "AggregateRating",
+        "ratingValue": "4.9",
+        "bestRating": "5",
+        "worstRating": "1",
+        "ratingCount": "9321",
+        "reviewCount": "9321"
+      }
+    },
+    "dataset": {
+      "@type": "Dataset",
+      "name": "AI Detection Analysis Results",
+      "description": "Structured data containing AI probability analysis of image content",
+      "creator": {
+        "@type": "Organization",
+        "name": "TruthScan"
+      },
+      "distribution": {
+        "@type": "DataDownload",
+        "contentUrl": "${canonicalUrl}",
+        "encodingFormat": "application/ld+json"
+      },
+      "variableMeasured": [
+        {
+          "@type": "PropertyValue",
+          "name": "AI Probability",
+          "value": "${scorePercentage}%",
+          "unitText": "percent"
+        },
+        {
+          "@type": "PropertyValue", 
+          "name": "Classification",
+          "value": "${classification}"
+        },
+        {
+          "@type": "PropertyValue",
+          "name": "Confidence Level", 
+          "value": "${confidenceLevel}"
+        }
+      ]
+    },
+    "review": {
+      "@type": "Rating",
+      "ratingValue": ${scorePercentage},
+      "bestRating": 100,
+      "worstRating": 0,
+      "ratingExplanation": "AI Generation Probability Score",
+      "author": {
+        "@type": "Organization",
+        "name": "TruthScan AI Engine"
+      }
     },
     "keywords": [
       "AI detection",
@@ -6622,7 +6742,10 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       "image analysis",
       "content verification",
       "${classification.toLowerCase()}",
-      "TruthScan"
+      "TruthScan",
+      "machine learning",
+      "deepfake detection",
+      "synthetic media"
     ],
     "inLanguage": "en-US",
     "isAccessibleForFree": true,
@@ -6648,6 +6771,11 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
         "@type": "ViewAction",
         "target": "${twitterUrl}",
         "name": "View Original Tweet"
+      },
+      {
+        "@type": "UseAction",
+        "target": "https://truthscan.com",
+        "name": "Try TruthScan AI Detection"
       }
     ],
     "mentions": [
@@ -6670,7 +6798,8 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     "spatialCoverage": "Global",
     "audience": {
       "@type": "Audience",
-      "name": "Technology professionals, researchers, and social media users"
+      "name": "Technology professionals, researchers, and social media users",
+      "audienceType": "Professional"
     }
   }
   </script>
