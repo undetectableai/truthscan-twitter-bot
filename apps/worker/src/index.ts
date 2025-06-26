@@ -578,7 +578,7 @@ async function promotePopularPages(env: Env): Promise<{ success: boolean; promot
       LEFT JOIN page_views pv ON d.page_id = pv.page_id
       WHERE d.robots_index = 0 OR d.robots_index IS NULL
       GROUP BY d.page_id, d.id, d.robots_index
-      HAVING COUNT(pv.id) >= 50
+      HAVING COUNT(pv.id) >= 20
       ORDER BY view_count DESC
     `;
     
@@ -598,7 +598,7 @@ async function promotePopularPages(env: Env): Promise<{ success: boolean; promot
     }
     
     if (eligiblePages.length === 0) {
-      console.log('❌ No pages found that meet promotion criteria (5+ views, not already indexed)');
+      console.log('❌ No pages found that meet promotion criteria (20+ views, not already indexed)');
       return { 
         success: true, 
         promotedCount: 0, 
@@ -1074,7 +1074,7 @@ Disallow: /thumbnails/
 Sitemap: ${baseUrl}/detection/sitemap.xml`;
   
   robotsContent += `\n\n# Generated automatically at ${new Date().toISOString()}`;
-  robotsContent += `\n# Pages with 50+ views are automatically promoted for indexing`;
+  robotsContent += `\n# Pages with 20+ views are automatically promoted for indexing`;
   robotsContent += `\n# Currently ${indexablePages.length} page(s) are indexed`;
   
   return robotsContent;
@@ -1174,7 +1174,7 @@ function generateSitemapXmlContent(indexablePages: any[], _request: Request): st
     <priority>1.0</priority>
   </url>`;
   
-  // Add each indexable detection page (only pages with 50+ views)
+  // Add each indexable detection page (only pages with 20+ views)
   for (const page of indexablePages) {
     const pageData = page as { page_id: string; timestamp: string };
     const pageId = pageData.page_id;
@@ -1643,7 +1643,7 @@ export default {
               LEFT JOIN page_views pv ON d.page_id = pv.page_id
               WHERE d.robots_index = 0 OR d.robots_index IS NULL
               GROUP BY d.page_id, d.id, d.robots_index
-              HAVING COUNT(pv.id) >= 5
+              HAVING COUNT(pv.id) >= 20
               ORDER BY view_count DESC
             `;
             
@@ -1757,7 +1757,7 @@ export default {
               LEFT JOIN page_views pv ON d.page_id = pv.page_id
               WHERE d.robots_index = 0 OR d.robots_index IS NULL
               GROUP BY d.page_id, d.id, d.robots_index
-              HAVING COUNT(pv.id) >= 5
+              HAVING COUNT(pv.id) >= 20
               ORDER BY view_count DESC
             `;
             
@@ -1791,6 +1791,148 @@ export default {
             });
           }
           
+        case '/api/test/sitemap-generation-debug':
+          try {
+            console.log('🧪 Debugging sitemap generation query');
+            
+            // Test the exact queries used in sitemap generation
+            let indexablePages: any[] = [];
+            const queryResults: any = { tests: [] };
+            
+            try {
+              // Try the full query first (production environment)
+              const fullQuery = `
+                SELECT page_id, timestamp
+                FROM detections 
+                WHERE robots_index = 1 
+                  AND deleted_at IS NULL 
+                ORDER BY timestamp DESC
+              `;
+              const result = await env.DB.prepare(fullQuery).all();
+              indexablePages = result.results || [];
+              queryResults.tests.push({
+                name: 'full_query_with_deleted_at',
+                success: true,
+                resultCount: indexablePages.length,
+                pages: indexablePages
+              });
+            } catch (error) {
+              queryResults.tests.push({
+                name: 'full_query_with_deleted_at',
+                success: false,
+                error: error instanceof Error ? error.message : 'Unknown error'
+              });
+              
+              try {
+                // Try with just robots_index (some migrations applied)
+                const robotsQuery = `
+                  SELECT page_id, timestamp
+                  FROM detections 
+                  WHERE robots_index = 1 
+                  ORDER BY timestamp DESC
+                `;
+                const result = await env.DB.prepare(robotsQuery).all();
+                indexablePages = result.results || [];
+                queryResults.tests.push({
+                  name: 'robots_only_query',
+                  success: true,
+                  resultCount: indexablePages.length,
+                  pages: indexablePages
+                });
+              } catch (robotsError) {
+                queryResults.tests.push({
+                  name: 'robots_only_query',
+                  success: false,
+                  error: robotsError instanceof Error ? robotsError.message : 'Unknown error'
+                });
+                // Use empty array as fallback
+                indexablePages = [];
+              }
+            }
+            
+            return new Response(JSON.stringify({
+              success: true,
+              timestamp: new Date().toISOString(),
+              debug: {
+                finalIndexablePages: indexablePages,
+                finalCount: indexablePages.length,
+                queryTests: queryResults.tests
+              }
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } catch (error) {
+            console.error('❌ Sitemap generation debug failed:', error);
+            return new Response(JSON.stringify({
+              success: false,
+              error: error instanceof Error ? error.message : 'Unknown error',
+              timestamp: new Date().toISOString()
+            }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+
+        case '/api/test/check-high-traffic-pages':
+          try {
+            console.log('🧪 Checking high-traffic pages specifically');
+            
+            // Check the schema first
+            const schemaQuery = `PRAGMA table_info(detections)`;
+            const schemaResult = await env.DB.prepare(schemaQuery).all();
+            
+            // Check specific pages
+            const pageCheckQuery = `
+              SELECT 
+                page_id,
+                robots_index,
+                created_at,
+                id as detection_id
+              FROM detections 
+              WHERE page_id IN ('jvwi', 'jf4j', '32vi')
+              ORDER BY page_id
+            `;
+            
+            const pageCheckResult = await env.DB.prepare(pageCheckQuery).all();
+            
+            // Check page views for these pages
+            const viewCheckQuery = `
+              SELECT 
+                page_id,
+                COUNT(*) as view_count
+              FROM page_views 
+              WHERE page_id IN ('jvwi', 'jf4j', '32vi')
+              GROUP BY page_id
+              ORDER BY view_count DESC
+            `;
+            
+            const viewCheckResult = await env.DB.prepare(viewCheckQuery).all();
+            
+            return new Response(JSON.stringify({
+              success: true,
+              timestamp: new Date().toISOString(),
+              debug: {
+                schema: schemaResult.results || [],
+                specificPages: pageCheckResult.results || [],
+                pageViews: viewCheckResult.results || []
+              }
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } catch (error) {
+            console.error('❌ High-traffic pages check failed:', error);
+            return new Response(JSON.stringify({
+              success: false,
+              error: error instanceof Error ? error.message : 'Unknown error',
+              timestamp: new Date().toISOString()
+            }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+
         case '/api/test/debug-promotion-query':
           try {
             console.log('🧪 Debugging promotion SQL query');
@@ -1806,7 +1948,7 @@ export default {
               LEFT JOIN page_views pv ON d.page_id = pv.page_id
               WHERE d.robots_index = 0 OR d.robots_index IS NULL
               GROUP BY d.page_id, d.id, d.robots_index
-              HAVING COUNT(pv.id) >= 5
+              HAVING COUNT(pv.id) >= 20
               ORDER BY view_count DESC
               LIMIT 10
             `;
