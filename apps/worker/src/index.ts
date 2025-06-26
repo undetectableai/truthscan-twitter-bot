@@ -2863,8 +2863,9 @@ async function processImageWithAIDetection(imageUrl: string, env: Env): Promise<
   const startTime = Date.now();
   
   try {
-    console.log('Starting AI detection process for:', imageUrl);
-    console.log('DEBUG: API key available in env:', !!env.AI_DETECTION_API_KEY);
+    console.log('🔍 Starting AI detection process for:', imageUrl);
+    console.log('🔧 DEBUG: API key available in env:', !!env.AI_DETECTION_API_KEY);
+    console.log('🔧 DEBUG: API key first 10 chars:', env.AI_DETECTION_API_KEY ? env.AI_DETECTION_API_KEY.substring(0, 10) + '...' : 'undefined');
     
     // Step 1: Download image from Twitter
     console.log('DEBUG: Step 1 - Starting image download...');
@@ -2872,7 +2873,9 @@ async function processImageWithAIDetection(imageUrl: string, env: Env): Promise<
     console.log('DEBUG: Download result:', { success: downloadResult.success, error: downloadResult.error });
     
     if (!downloadResult.success || !downloadResult.blob || !downloadResult.filename) {
-      throw new Error(downloadResult.error || 'Failed to download image');
+      const error = downloadResult.error || 'Failed to download image';
+      console.error('❌ Step 1 FAILED - Image download:', error);
+      throw new Error(error);
     }
     
     console.log('DEBUG: Step 2 - Getting presigned URL...');
@@ -2881,7 +2884,9 @@ async function processImageWithAIDetection(imageUrl: string, env: Env): Promise<
     console.log('DEBUG: Presigned result:', { success: presignedResult.success, error: presignedResult.error });
     
     if (!presignedResult.success || !presignedResult.data) {
-      throw new Error(presignedResult.error || 'Failed to get presigned URL');
+      const error = presignedResult.error || 'Failed to get presigned URL';
+      console.error('❌ Step 2 FAILED - Presigned URL:', error);
+      throw new Error(error);
     }
     
     console.log('DEBUG: Step 3 - Uploading image...');
@@ -2894,7 +2899,9 @@ async function processImageWithAIDetection(imageUrl: string, env: Env): Promise<
     console.log('DEBUG: Upload result:', { success: uploadResult.success, error: uploadResult.error });
     
     if (!uploadResult.success) {
-      throw new Error(uploadResult.error || 'Failed to upload image');
+      const error = uploadResult.error || 'Failed to upload image';
+      console.error('❌ Step 3 FAILED - Image upload:', error);
+      throw new Error(error);
     }
     
     console.log('DEBUG: Step 4 - Submitting for detection...');
@@ -2903,7 +2910,9 @@ async function processImageWithAIDetection(imageUrl: string, env: Env): Promise<
     console.log('DEBUG: Submission result:', { success: submissionResult.success, error: submissionResult.error });
     
     if (!submissionResult.success || !submissionResult.data) {
-      throw new Error(submissionResult.error || 'Failed to submit for detection');
+      const error = submissionResult.error || 'Failed to submit for detection';
+      console.error('❌ Step 4 FAILED - Detection submission:', error);
+      throw new Error(error);
     }
     
     console.log('DEBUG: Step 5 - Querying results...');
@@ -2912,7 +2921,15 @@ async function processImageWithAIDetection(imageUrl: string, env: Env): Promise<
     console.log('DEBUG: Query result:', { success: queryResult.success, error: queryResult.error });
     
     if (!queryResult.success || !queryResult.data) {
-      throw new Error(queryResult.error || 'Failed to get detection results');
+      const error = queryResult.error || 'Failed to get detection results';
+      console.error('❌ Step 5 FAILED - Detection results query:', error);
+      throw new Error(error);
+    }
+    
+    if (queryResult.data.status !== 'done') {
+      const error = `Detection not completed: status=${queryResult.data.status}`;
+      console.error('❌ Step 5 FAILED - Detection not completed:', error);
+      throw new Error(error);
     }
     
     const processingTime = Date.now() - startTime;
@@ -2925,7 +2942,8 @@ async function processImageWithAIDetection(imageUrl: string, env: Env): Promise<
     // Get image data as ArrayBuffer for database storage
     const imageArrayBuffer = await downloadResult.blob.arrayBuffer();
     
-    console.log('AI detection completed successfully:', {
+    console.log('✅ AI detection completed successfully:', {
+      detectionId: submissionResult.data.id,
       aiProbability: result,
       finalResult,
       confidence,
@@ -2945,6 +2963,13 @@ async function processImageWithAIDetection(imageUrl: string, env: Env): Promise<
     
   } catch (error) {
     const processingTime = Date.now() - startTime;
+    
+    console.error('❌ AI DETECTION FAILED:', {
+      imageUrl,
+      processingTimeMs: processingTime,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
     
     // Log API error for monitoring
     await MonitoringEvents.logAPIError(env, 'AI Detection', error, { 
