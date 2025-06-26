@@ -9,8 +9,14 @@ export default {
     // Prepare request options
     const requestOptions = {
       method: request.method,
-      headers: request.headers
+      headers: new Headers(request.headers)
     };
+    
+    // Add Basic Auth for API endpoints
+    if (incomingUrl.pathname.startsWith('/api/')) {
+      const auth = btoa('admin:admin');
+      requestOptions.headers.set('Authorization', `Basic ${auth}`);
+    }
     
     // Only include body for non-GET/HEAD requests
     if (request.method !== 'GET' && request.method !== 'HEAD') {
