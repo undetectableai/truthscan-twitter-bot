@@ -591,8 +591,20 @@ async function promotePopularPages(env: Env): Promise<{ success: boolean; promot
     const result = await env.DB.prepare(query).all();
     const eligiblePages = result.results || [];
     
+    // DEBUG: Log the actual query results
+    console.log('🔍 PROMOTION DEBUG: Query executed successfully');
+    console.log('🔍 PROMOTION DEBUG: Raw DB result:', { 
+      success: result.success, 
+      resultsLength: result.results?.length || 0,
+      meta: result.meta 
+    });
+    console.log('🔍 PROMOTION DEBUG: Eligible pages found:', eligiblePages.length);
+    if (eligiblePages.length > 0) {
+      console.log('🔍 PROMOTION DEBUG: First few eligible pages:', eligiblePages.slice(0, 3));
+    }
+    
     if (eligiblePages.length === 0) {
-      console.log('✅ No pages found that meet promotion criteria (50+ views, not already indexed)');
+      console.log('❌ No pages found that meet promotion criteria (5+ views, not already indexed)');
       return { 
         success: true, 
         promotedCount: 0, 
