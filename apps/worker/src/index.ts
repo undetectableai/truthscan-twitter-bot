@@ -262,28 +262,37 @@ async function logTwitterAPICall(
     const limitValue = parseInt(rateLimitHeaders.limit || '0');
     
     let limitType = 'UNKNOWN';
-    if (limitValue >= 1000000) limitType = 'MONTHLY/APP_LEVEL';
-    else if (limitValue >= 10000) limitType = 'HOURLY/BURST';
-    else if (limitValue >= 1000) limitType = 'HOURLY';
-    else if (limitValue <= 100) limitType = 'DAILY_USER';
+    // FIXED: Handle the bogus 1,080,000 limit from Twitter API bug
+    if (limitValue === 1080000) {
+      limitType = 'TWITTER_API_BUG (1080000 not documented)';
+    } else if (limitValue >= 1000000) {
+      limitType = 'MONTHLY/APP_LEVEL';
+    } else if (limitValue >= 10000) {
+      limitType = 'HOURLY/BURST';
+    } else if (limitValue >= 1000) {
+      limitType = 'HOURLY';
+    } else if (limitValue <= 100) {
+      limitType = 'DAILY_USER';
+    }
     
-    console.error('🚫 TWITTER RATE LIMIT HIT:', {
-      endpoint: endpointType,
-      method,
-      url,
-      limitType,
-      rateLimitHeaders: {
-        ...rateLimitHeaders,
-        resetTime: resetTime ? resetTime.toISOString() : 'unknown',
-        minutesUntilReset
-      },
-      responseBody: responseBody.substring(0, 200),
-      internalTracker: {
-        requestCount: twitterRateLimit.requestCount,
-        windowStart: new Date(twitterRateLimit.windowStartTime).toISOString(),
-        timeInWindow: Math.round((Date.now() - twitterRateLimit.windowStartTime) / 1000 / 60)
-      }
-    });
+          console.error('🚫 TWITTER RATE LIMIT HIT:', {
+        endpoint: endpointType,
+        method,
+        url,
+        limitType,
+        WARNING: limitValue === 1080000 ? 'This limit (1080000) is NOT documented in Twitter API v2. Possible Twitter API bug!' : null,
+        rateLimitHeaders: {
+          ...rateLimitHeaders,
+          resetTime: resetTime ? resetTime.toISOString() : 'unknown',
+          minutesUntilReset
+        },
+        responseBody: responseBody.substring(0, 200),
+        internalTracker: {
+          requestCount: twitterRateLimit.requestCount,
+          windowStart: new Date(twitterRateLimit.windowStartTime).toISOString(),
+          timeInWindow: Math.round((Date.now() - twitterRateLimit.windowStartTime) / 1000 / 60)
+        }
+      });
   } else if (isError) {
     console.error('❌ TWITTER API ERROR:', {
       endpoint: endpointType,
