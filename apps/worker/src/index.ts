@@ -475,8 +475,13 @@ async function logSystemMetric(
 
 /**
  * Simple bot detection based on user agent
+ * TEMPORARILY DISABLED FOR TESTING PAGE PROMOTION
  */
 function detectBot(userAgent?: string): boolean {
+  // TEMP: Always return false to test page promotion system
+  return false;
+  
+  /* ORIGINAL CODE - TEMPORARILY COMMENTED OUT
   if (!userAgent) return false;
   
   const botPatterns = [
@@ -487,6 +492,7 @@ function detectBot(userAgent?: string): boolean {
   ];
   
   return botPatterns.some(pattern => pattern.test(userAgent));
+  */
 }
 
 /**
