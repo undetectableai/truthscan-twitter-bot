@@ -7610,7 +7610,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       </div>
     </section>` : ''}
     
-    ${data.detection_score !== null && data.detection_score !== undefined ? `
+    ${data.confidence_analysis ? `
     <!-- AI Detection Confidence Section -->
     <section class="ai-detection-section">
       <div class="header-content">
@@ -7621,11 +7621,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       
       <!-- AI Detection Explanation Text -->
       <div class="detailed-description">
-        ${data.confidence_analysis ? 
-          `<div>${data.confidence_analysis.split('\n').map((line: string) => line.trim() ? `<p>${line.trim()}</p>` : '').join('')}</div>` : 
-          `<p>• This analysis is based on artificial intelligence algorithms that examine various visual characteristics including patterns, textures, artifacts, and inconsistencies typically associated with AI-generated content.</p>
-           <p>• The ${scorePercentage}% confidence score indicates the likelihood that this image was created using AI tools rather than traditional photography or manual creation.</p>`
-        }
+        <div>${data.confidence_analysis.split('\n').map((line: string) => line.trim() ? `<p>${line.trim()}</p>` : '').join('')}</div>
       </div>
     </section>` : ''}
     
