@@ -562,7 +562,7 @@ async function pollTwitterMentionsIncremental(
     searchUrl.searchParams.set('tweet.fields', 'id,text,author_id,created_at,attachments,referenced_tweets,entities');
     searchUrl.searchParams.set('user.fields', 'username');
     searchUrl.searchParams.set('media.fields', 'url,preview_image_url,type');
-    searchUrl.searchParams.set('expansions', 'author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.attachments.media_keys');
+    searchUrl.searchParams.set('expansions', 'author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.attachments.media_keys,referenced_tweets.id.author_id');
     searchUrl.searchParams.set('max_results', '10');
     searchUrl.searchParams.set('sort_order', 'recency');
     
@@ -634,6 +634,7 @@ async function pollTwitterMentionsIncremental(
         let imageUrls: string[] = [];
         let sourceText = tweet.text || ''; // Default to reply text
         let sourceHashtags: string[] = [];
+        let originalAuthorUsername = authorUsername; // Default to mention tweet author
         
         if (isReply) {
           // Look for images in the original tweet that was replied to
@@ -645,6 +646,31 @@ async function pollTwitterMentionsIncremental(
             );
             
             if (originalTweet) {
+              // Get the original tweet's author from the includes section
+              console.log('DEBUG: Searching for original author:', {
+                originalTweetAuthorId: originalTweet.author_id,
+                availableUsers: searchResults.includes?.users?.map(u => ({ id: u.id, username: u.username })) || [],
+                totalUsersInIncludes: searchResults.includes?.users?.length || 0
+              });
+              
+              const originalAuthor = searchResults.includes?.users?.find(
+                user => user.id === originalTweet.author_id
+              );
+              if (originalAuthor) {
+                originalAuthorUsername = originalAuthor.username;
+                console.log('✅ Found original tweet author:', {
+                  originalAuthor: originalAuthorUsername,
+                  mentionAuthor: authorUsername,
+                  originalTweetId: referencedTweetId
+                });
+              } else {
+                console.log('❌ Original author NOT found in includes.users, falling back to mention author:', {
+                  searchedForAuthorId: originalTweet.author_id,
+                  mentionAuthor: authorUsername,
+                  originalTweetId: referencedTweetId
+                });
+              }
+              
               // Convert the v2 format to webhook format and extract all images (media + Open Graph)
               const webhookFormatTweet = convertV2ToWebhookFormat(originalTweet);
               
@@ -677,6 +703,8 @@ async function pollTwitterMentionsIncremental(
               
               console.log('Found NEW reply to tweet with comprehensive image extraction:', {
                 originalTweetId: referencedTweetId,
+                originalAuthor: originalAuthorUsername,
+                mentionAuthor: authorUsername,
                 imageCount: imageUrls.length,
                 urlsInOriginal: originalTweet.entities?.urls?.length || 0,
                 originalText: sourceText.substring(0, 100) + '...',
@@ -704,7 +732,8 @@ async function pollTwitterMentionsIncremental(
 
         console.log('Found NEW mention:', {
           tweetId,
-          author: authorUsername,
+          author: originalAuthorUsername, // This is now the original poster, not the mention author
+          mentionAuthor: authorUsername,
           isReply,
           imageCount: imageUrls.length,
           replyText: tweet.text?.substring(0, 100) + '...',
@@ -715,7 +744,7 @@ async function pollTwitterMentionsIncremental(
         // Create parsed tweet data using the correct source (original tweet for replies, mention tweet for direct mentions)
         const parsedTweet: ParsedTweetData = {
           tweetId,
-          username: authorUsername,
+          username: originalAuthorUsername, // Use original tweet author for replies, mention author for direct mentions
           text: sourceText, // Use original tweet text for replies, mention tweet text for direct mentions
           imageUrls,
           mentionedUsers: [botUsername],
@@ -1515,6 +1544,7 @@ interface DetectionResult {
   imageData?: ArrayBuffer;
   imageContentType?: string;
   imageDescription?: string;
+  metaDescription?: string;
 }
 
 /**
@@ -2323,13 +2353,19 @@ async function processImageWithAI(imageUrl: string, env: Env): Promise<Detection
     const groqResult = await analyzeImageWithGroq(imageUrl, env);
     console.log('DEBUG: Groq result:', { success: groqResult.success, description: groqResult.description, error: groqResult.error });
     
+    // Step 7: Generate meta description with Groq API
+    console.log('DEBUG: Step 7 - Generating meta description with Groq API...');
+    const groqMetaResult = await generateMetaDescriptionWithGroq(imageUrl, env);
+    console.log('DEBUG: Groq meta result:', { success: groqMetaResult.success, metaDescription: groqMetaResult.metaDescription, length: groqMetaResult.metaDescription.length, error: groqMetaResult.error });
+    
     console.log('AI detection completed successfully:', {
       aiProbability: result,
       finalResult,
       confidence,
       processingTimeMs: processingTime,
       imageSize: imageArrayBuffer.byteLength,
-      imageDescription: groqResult.description
+      imageDescription: groqResult.description,
+      metaDescription: groqMetaResult.metaDescription
     });
     
     return {
@@ -2340,7 +2376,8 @@ async function processImageWithAI(imageUrl: string, env: Env): Promise<Detection
       processingTimeMs: processingTime,
       imageData: imageArrayBuffer,
       imageContentType: downloadResult.contentType || 'image/jpeg',
-      imageDescription: groqResult.success ? groqResult.description : undefined
+      imageDescription: groqResult.success ? groqResult.description : undefined,
+      metaDescription: groqMetaResult.success ? groqMetaResult.metaDescription : undefined
     };
     
   } catch (error) {
@@ -2404,6 +2441,13 @@ async function getPlaceholderImage(): Promise<ArrayBuffer> {
 interface GroqImageAnalysisResult {
   success: boolean;
   description: string;
+  processingTimeMs: number;
+  error?: string;
+}
+
+interface GroqMetaDescriptionResult {
+  success: boolean;
+  metaDescription: string;
   processingTimeMs: number;
   error?: string;
 }
@@ -2494,6 +2538,100 @@ async function analyzeImageWithGroq(imageUrl: string, env: Env): Promise<GroqIma
     return {
       success: false,
       description: 'Image',
+      processingTimeMs: processingTime,
+      error: error instanceof Error ? error.message : 'Unknown Groq error'
+    };
+  }
+}
+
+/**
+ * Generate meta description using Groq AI
+ * Format: "TruthScan detected a 66% chance this [DESCRIPTION] is AI-generated. Posted by @username"
+ * Target: ~70-80 characters for the description part to keep total under 160 chars
+ */
+async function generateMetaDescriptionWithGroq(imageUrl: string, env: Env): Promise<GroqMetaDescriptionResult> {
+  const startTime = Date.now();
+  
+  try {
+    console.log('Starting Groq meta description generation for:', imageUrl);
+    
+    if (!env.GROQ_API_KEY) {
+      throw new Error('GROQ_API_KEY not configured');
+    }
+
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.GROQ_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'Describe this image in 70-80 characters maximum for a meta description. Focus on the main subject, scene, or activity. Be descriptive but concise. Examples: "professional headshot of a business executive", "sunset landscape with mountains and lake", "group selfie at a wedding reception", "modern city skyline at night", "close-up portrait of a smiling woman". Do not include punctuation at the end.'
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: imageUrl
+                }
+              }
+            ]
+          }
+        ],
+        temperature: 0.3,
+        max_completion_tokens: 80,
+        top_p: 1,
+        stream: false
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Groq API error ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json() as {
+      choices: Array<{
+        message: {
+          content: string;
+        };
+      }>;
+    };
+
+    const metaDescription = data.choices?.[0]?.message?.content?.trim() || 'image';
+    const processingTime = Date.now() - startTime;
+
+    console.log('Groq meta description completed:', {
+      metaDescription,
+      length: metaDescription.length,
+      processingTimeMs: processingTime
+    });
+
+    return {
+      success: true,
+      metaDescription: metaDescription.replace(/[^\w\s-]/g, ''), // Clean up punctuation for safety
+      processingTimeMs: processingTime
+    };
+
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+    console.error('Groq meta description generation failed:', error);
+    
+    // Log API error for monitoring
+    await MonitoringEvents.logAPIError(env, 'Groq Meta Description', error, { 
+      imageUrl, 
+      processingTimeMs: processingTime 
+    });
+
+    return {
+      success: false,
+      metaDescription: 'image',
       processingTimeMs: processingTime,
       error: error instanceof Error ? error.message : 'Unknown Groq error'
     };
@@ -3195,7 +3333,8 @@ async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTw
           responseTweetId: undefined, // Will be set after consolidated reply
           processingTimeMs: detectionResult.processingTimeMs,
           apiProvider: 'undetectable.ai',
-          imageDescription: detectionResult.imageDescription
+          imageDescription: detectionResult.imageDescription,
+          metaDescription: detectionResult.metaDescription
         });
         void insertResult; // pageId available for future use
         
@@ -3221,7 +3360,8 @@ async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTw
           twitterHandle: tweetData.username,
           processingTimeMs: 0,
           apiProvider: 'undetectable.ai',
-          imageDescription: undefined // No description on error
+          imageDescription: undefined, // No description on error
+          metaDescription: undefined // No meta description on error
         });
         void insertResult; // pageId available for future use
         
@@ -3664,6 +3804,7 @@ async function insertDetection(env: Env, data: {
   imageData?: ArrayBuffer;
   imageContentType?: string;
   imageDescription?: string;
+  metaDescription?: string;
 }): Promise<{ success: boolean; pageId?: string }> {
   // Generate unique page_id if not provided
   let pageId = data.pageId;
@@ -3683,8 +3824,8 @@ async function insertDetection(env: Env, data: {
     const stmt = env.DB.prepare(`
       INSERT INTO detections (
         id, tweet_id, timestamp, image_url, detection_score, twitter_handle, 
-        response_tweet_id, processing_time_ms, api_provider, page_id, image_description
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        response_tweet_id, processing_time_ms, api_provider, page_id, image_description, meta_description
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
     const result = await stmt.bind(
@@ -3698,7 +3839,8 @@ async function insertDetection(env: Env, data: {
       data.processingTimeMs || null,
       data.apiProvider || null,
       pageId || null,
-      data.imageDescription || null
+      data.imageDescription || null,
+      data.metaDescription || null
     ).run();
     
     console.log('Detection inserted:', { 
@@ -5384,7 +5526,11 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
   
   // Generate dynamic, compelling meta descriptions under character limits
   const shortDescription = `${scorePercentage}% ${classification} - AI detection analysis from TruthScan`;
-  const longDescription = `AI detection analysis: ${scorePercentage}% probability of AI generation. From @${data.twitter_handle} tweet. Analyzed ${timeAgo}.`;
+  
+  // Use custom Groq-generated meta description if available, otherwise fallback to default
+  const longDescription = data.meta_description && data.meta_description !== 'image' 
+    ? `TruthScan detected a ${scorePercentage}% chance this ${data.meta_description} is AI-generated. Posted by @${data.twitter_handle}`
+    : `AI detection analysis: ${scorePercentage}% probability of AI generation. From @${data.twitter_handle} tweet. Analyzed ${timeAgo}.`;
   
   // Image URLs with fallback
   const ogImageUrl = `${currentDomain}/thumbnails/${pageId}`;
@@ -6527,7 +6673,7 @@ async function getDetectionByPageId(pageId: string, env: Env): Promise<{ data: a
       SELECT 
         id, tweet_id, timestamp, image_url, detection_score, twitter_handle, 
         response_tweet_id, processing_time_ms, api_provider, page_id, 
-        created_at, updated_at, robots_index, image_description
+        created_at, updated_at, robots_index, image_description, meta_description
       FROM detections 
       WHERE page_id = ? 
       LIMIT 1
