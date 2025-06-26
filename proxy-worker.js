@@ -12,8 +12,8 @@ export default {
       headers: new Headers(request.headers)
     };
     
-    // Add Basic Auth for API endpoints
-    if (incomingUrl.pathname.startsWith('/api/')) {
+    // Add Basic Auth for API endpoints (both /api/ and /bot-api/)
+    if (incomingUrl.pathname.startsWith('/api/') || incomingUrl.pathname.startsWith('/bot-api/')) {
       const auth = btoa('admin:admin');
       requestOptions.headers.set('Authorization', `Basic ${auth}`);
     }

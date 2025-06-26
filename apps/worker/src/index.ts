@@ -1060,6 +1060,11 @@ export default {
     try {
       const url = new URL(request.url);
       
+      // Normalize /bot-api/* routes to /api/* for internal routing
+      if (url.pathname.startsWith('/bot-api/')) {
+        url.pathname = url.pathname.replace('/bot-api/', '/api/');
+      }
+      
       // Apply Basic Auth to API endpoints (but not webhook endpoints)
       if (url.pathname.startsWith('/api/')) {
         const authResponse = requireBasicAuth(request, env);
