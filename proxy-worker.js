@@ -1,7 +1,7 @@
 export default {
   async fetch(request) {
     const incomingUrl = new URL(request.url);
-    const backendBase = "https://truthscan-twitter-bot-prod.bjuhasz08.workers.dev";
+    const backendBase = "https://truthscan-twitter-bot.bjuhasz08.workers.dev";
     
     // Build the target URL by forwarding the entire path and query parameters
     const targetUrl = `${backendBase}${incomingUrl.pathname}${incomingUrl.search}`;
