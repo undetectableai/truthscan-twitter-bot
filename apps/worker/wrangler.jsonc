@@ -51,7 +51,7 @@
       // }
     },
     "production": {
-      "name": "truthscan-twitter-bot-prod",
+      "name": "truthscan-twitter-bot",
       "vars": {
         "ENVIRONMENT": "production",
         "TWITTER_BOT_USERNAME": "truth_scan"
