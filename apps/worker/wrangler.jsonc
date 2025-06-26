@@ -81,6 +81,7 @@
   // - TWITTER_ACCESS_TOKEN
   // - TWITTER_ACCESS_TOKEN_SECRET
   // - AI_DETECTION_API_KEY
+  // - GROQ_API_KEY
   // Optional: BASIC_AUTH_USERNAME, BASIC_AUTH_PASSWORD
   
   // D1 Database Setup Instructions:

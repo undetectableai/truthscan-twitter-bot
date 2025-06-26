@@ -64,6 +64,9 @@ interface Env {
   // AI Detection API (Undetectable.AI)
   AI_DETECTION_API_KEY: string;
   
+  // Groq API for image analysis
+  GROQ_API_KEY: string;
+  
   // Bot configuration
   TWITTER_BOT_USERNAME: string;
   
@@ -1086,6 +1089,9 @@ export default {
         case '/api/test-database-updates':
           return handleDatabaseUpdatesTest(request, env);
           
+        case '/api/test-groq':
+          return handleGroqTest(request, env);
+          
         case '/api/generate-monitoring-test-data':
           return handleGenerateTestMonitoringData(request, env);
           
@@ -1503,6 +1509,7 @@ interface DetectionResult {
   error?: string;
   imageData?: ArrayBuffer;
   imageContentType?: string;
+  imageDescription?: string;
 }
 
 /**
@@ -2306,12 +2313,18 @@ async function processImageWithAI(imageUrl: string, env: Env): Promise<Detection
     // Get image data as ArrayBuffer for database storage
     const imageArrayBuffer = await downloadResult.blob.arrayBuffer();
     
+    // Step 6: Analyze image with Groq API for description (parallel with existing detection)
+    console.log('DEBUG: Step 6 - Analyzing image with Groq API...');
+    const groqResult = await analyzeImageWithGroq(imageUrl, env);
+    console.log('DEBUG: Groq result:', { success: groqResult.success, description: groqResult.description, error: groqResult.error });
+    
     console.log('AI detection completed successfully:', {
       aiProbability: result,
       finalResult,
       confidence,
       processingTimeMs: processingTime,
-      imageSize: imageArrayBuffer.byteLength
+      imageSize: imageArrayBuffer.byteLength,
+      imageDescription: groqResult.description
     });
     
     return {
@@ -2321,7 +2334,8 @@ async function processImageWithAI(imageUrl: string, env: Env): Promise<Detection
       confidence,
       processingTimeMs: processingTime,
       imageData: imageArrayBuffer,
-      imageContentType: downloadResult.contentType || 'image/jpeg'
+      imageContentType: downloadResult.contentType || 'image/jpeg',
+      imageDescription: groqResult.success ? groqResult.description : undefined
     };
     
   } catch (error) {
@@ -2376,6 +2390,109 @@ async function getPlaceholderImage(): Promise<ArrayBuffer> {
   
   const encoder = new TextEncoder();
   return encoder.encode(placeholderSvg).buffer;
+}
+
+/**
+ * Groq API Integration for Image Analysis
+ */
+
+interface GroqImageAnalysisResult {
+  success: boolean;
+  description: string;
+  processingTimeMs: number;
+  error?: string;
+}
+
+/**
+ * Analyze image with Groq API to extract a short description
+ * Uses llama-4-scout-17b-16e-instruct model for vision analysis
+ */
+async function analyzeImageWithGroq(imageUrl: string, env: Env): Promise<GroqImageAnalysisResult> {
+  const startTime = Date.now();
+  
+  try {
+    console.log('Starting Groq image analysis for:', imageUrl);
+    
+    if (!env.GROQ_API_KEY) {
+      throw new Error('GROQ_API_KEY not configured');
+    }
+
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.GROQ_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'Describe this image in 3-4 words maximum, focusing on the main subject or scene. Examples: "Red Carpet Event", "Beach Sunset Photo", "City Street Scene", "Portrait Photo", "Group Selfie". Be concise and descriptive.'
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: imageUrl
+                }
+              }
+            ]
+          }
+        ],
+        temperature: 0.3,
+        max_completion_tokens: 50,
+        top_p: 1,
+        stream: false
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Groq API error ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json() as {
+      choices: Array<{
+        message: {
+          content: string;
+        };
+      }>;
+    };
+
+    const description = data.choices?.[0]?.message?.content?.trim() || 'Image';
+    const processingTime = Date.now() - startTime;
+
+    console.log('Groq image analysis completed:', {
+      description,
+      processingTimeMs: processingTime
+    });
+
+    return {
+      success: true,
+      description: description.replace(/[^\w\s-]/g, ''), // Clean up punctuation for URL safety
+      processingTimeMs: processingTime
+    };
+
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+    console.error('Groq image analysis failed:', error);
+    
+    // Log API error for monitoring
+    await MonitoringEvents.logAPIError(env, 'Groq Image Analysis', error, { 
+      imageUrl, 
+      processingTimeMs: processingTime 
+    });
+
+    return {
+      success: false,
+      description: 'Image',
+      processingTimeMs: processingTime,
+      error: error instanceof Error ? error.message : 'Unknown Groq error'
+    };
+  }
 }
 
 /**
@@ -3539,6 +3656,7 @@ async function insertDetection(env: Env, data: {
   pageId?: string; // Optional: provide existing page_id or let it auto-generate
   imageData?: ArrayBuffer;
   imageContentType?: string;
+  imageDescription?: string;
 }): Promise<{ success: boolean; pageId?: string }> {
   // Generate unique page_id if not provided
   let pageId = data.pageId;
@@ -3558,8 +3676,8 @@ async function insertDetection(env: Env, data: {
     const stmt = env.DB.prepare(`
       INSERT INTO detections (
         id, tweet_id, timestamp, image_url, detection_score, twitter_handle, 
-        response_tweet_id, processing_time_ms, api_provider, page_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        response_tweet_id, processing_time_ms, api_provider, page_id, image_description
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
     const result = await stmt.bind(
@@ -3572,7 +3690,8 @@ async function insertDetection(env: Env, data: {
       data.responseTweetId || null,
       data.processingTimeMs || null,
       data.apiProvider || null,
-      pageId || null
+      pageId || null,
+      data.imageDescription || null
     ).run();
     
     console.log('Detection inserted:', { 
@@ -4171,6 +4290,59 @@ async function handleReplyFormattingTest(_request: Request, _env: Env): Promise<
 /**
  * Test database updates for reply tweet ID integration
  */
+async function handleGroqTest(_request: Request, env: Env): Promise<Response> {
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+  
+  if (_request.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+  
+  try {
+    console.log('Testing Groq API integration...');
+    
+    // Test with a sample image URL
+    const testImageUrl = 'https://pbs.twimg.com/media/F0pKk50WcAE4337.jpg';
+    const groqResult = await analyzeImageWithGroq(testImageUrl, env);
+    
+    return new Response(JSON.stringify({
+      success: true,
+      timestamp: new Date().toISOString(),
+      groqApiTest: {
+        hasApiKey: !!env.GROQ_API_KEY,
+        apiKeyLength: env.GROQ_API_KEY?.length || 0,
+        testImageUrl,
+        result: groqResult
+      }
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        ...corsHeaders
+      }
+    });
+    
+  } catch (error) {
+    console.error('Groq test failed:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: 'Groq test failed',
+      timestamp: new Date().toISOString(),
+      errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      hasApiKey: !!env.GROQ_API_KEY
+    }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        ...corsHeaders
+      }
+    });
+  }
+}
+
 async function handleDatabaseUpdatesTest(_request: Request, env: Env): Promise<Response> {
   try {
     // Create a test detection record first
@@ -5222,7 +5394,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Detection: ${scorePercentage}% ${classification} | TruthScan</title>
+  <title>AI Detection: ${data.image_description || 'Image'} – ${scorePercentage}% Likely AI | TruthScan</title>
   
   <!-- Enhanced SEO Meta Tags -->
   <meta name="description" content="${longDescription}">
@@ -6348,7 +6520,7 @@ async function getDetectionByPageId(pageId: string, env: Env): Promise<{ data: a
       SELECT 
         id, tweet_id, timestamp, image_url, detection_score, twitter_handle, 
         response_tweet_id, processing_time_ms, api_provider, page_id, 
-        created_at, updated_at, robots_index
+        created_at, updated_at, robots_index, image_description
       FROM detections 
       WHERE page_id = ? 
       LIMIT 1
@@ -6361,6 +6533,7 @@ async function getDetectionByPageId(pageId: string, env: Env): Promise<{ data: a
         pageId: pageId,
         tweetId: result.tweet_id,
         hasImageUrl: !!result.image_url,
+        hasImageDescription: !!result.image_description,
         timestamp: new Date().toISOString()
       });
       return { data: result, isDeleted: false, exists: true };
