@@ -7215,7 +7215,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       justify-content: space-between;
       align-items: center;
       padding: calc(var(--space-3) * 0.5) 0;
-      max-width: 300px;
+      max-width: 400px;
       margin: 0 auto;
     }
     
