@@ -166,6 +166,127 @@ function recordTwitterRequest(): void {
   twitterRateLimit.requestCount++;
 }
 
+/**
+ * Enhanced logging for Twitter API requests and responses
+ * Captures detailed information for rate limit debugging
+ */
+async function logTwitterAPICall(
+  method: string,
+  url: string,
+  requestHeaders: Record<string, string>,
+  requestBody: any,
+  response: Response,
+  responseBody: string,
+  env: Env,
+  startTime: number
+): Promise<void> {
+  const endTime = Date.now();
+  const durationMs = endTime - startTime;
+  
+  // Extract rate limit headers from Twitter response
+  const rateLimitHeaders = {
+    limit: response.headers.get('x-rate-limit-limit'),
+    remaining: response.headers.get('x-rate-limit-remaining'),
+    reset: response.headers.get('x-rate-limit-reset'),
+    resetTime: response.headers.get('x-rate-limit-reset') ? 
+      new Date(parseInt(response.headers.get('x-rate-limit-reset')!) * 1000).toISOString() : null
+  };
+  
+  // Determine endpoint type for tracking
+  let endpointType = 'unknown';
+  if (url.includes('/2/tweets') && method === 'POST') {
+    endpointType = 'post_tweet';
+  } else if (url.includes('/2/users') && url.includes('/likes') && method === 'POST') {
+    endpointType = 'like_tweet';
+  } else if (url.includes('/2/tweets/search/recent')) {
+    endpointType = 'search_tweets';
+  } else if (url.includes('/1.1/account/verify_credentials')) {
+    endpointType = 'verify_credentials';
+  }
+  
+  // Determine if this was a rate limit error
+  const isRateLimited = response.status === 429;
+  const isError = !response.ok;
+  
+  // Log the detailed API call information
+  await logEvent(env, isError ? 'error' : 'info', 'twitter_api_call', 
+    `Twitter API ${method} ${endpointType}: ${response.status} ${response.statusText}`, {
+      details: {
+        endpoint: {
+          method,
+          url,
+          type: endpointType
+        },
+        request: {
+          hasAuth: !!requestHeaders.Authorization,
+          bodySize: requestBody ? JSON.stringify(requestBody).length : 0,
+          timestamp: new Date(startTime).toISOString()
+        },
+        response: {
+          status: response.status,
+          statusText: response.statusText,
+          bodySize: responseBody.length,
+          durationMs
+        },
+        rateLimits: {
+          ...rateLimitHeaders,
+          internal: {
+            currentWindow: twitterRateLimit.requestCount,
+            windowStart: new Date(twitterRateLimit.windowStartTime).toISOString()
+          }
+        },
+        error: isError ? {
+          isRateLimited,
+          responseBody: responseBody.substring(0, 500) // Truncate long responses
+        } : undefined
+      }
+    }
+  );
+  
+  // Log rate limit metrics for dashboard tracking
+  if (rateLimitHeaders.limit && rateLimitHeaders.remaining) {
+    await logSystemMetric(env, 'twitter_rate_limit_remaining', 
+      parseInt(rateLimitHeaders.remaining), 'gauge', {
+        tags: { 
+          endpoint: endpointType,
+          limit: rateLimitHeaders.limit
+        }
+      }
+    );
+  }
+  
+  // Specific console logging for rate limit issues
+  if (isRateLimited) {
+    console.error('🚫 TWITTER RATE LIMIT HIT:', {
+      endpoint: endpointType,
+      method,
+      url,
+      rateLimitHeaders,
+      responseBody: responseBody.substring(0, 200),
+      internalTracker: {
+        requestCount: twitterRateLimit.requestCount,
+        windowStart: new Date(twitterRateLimit.windowStartTime).toISOString(),
+        timeInWindow: Math.round((Date.now() - twitterRateLimit.windowStartTime) / 1000 / 60)
+      }
+    });
+  } else if (isError) {
+    console.error('❌ TWITTER API ERROR:', {
+      endpoint: endpointType,
+      status: response.status,
+      statusText: response.statusText,
+      responseBody: responseBody.substring(0, 200),
+      rateLimitHeaders
+    });
+  } else {
+    console.log('✅ TWITTER API SUCCESS:', {
+      endpoint: endpointType,
+      durationMs,
+      remaining: rateLimitHeaders.remaining || 'unknown',
+      resetTime: rateLimitHeaders.resetTime || 'unknown'
+    });
+  }
+}
+
 // MONITORING AND LOGGING FUNCTIONS
 
 /**
@@ -572,19 +693,26 @@ async function pollTwitterMentionsIncremental(
       console.log(`Using since_id parameter: ${sinceId}`);
     }
 
+    const startTime = Date.now();
+    const requestHeaders = {
+      'Authorization': `Bearer ${env.TWITTER_BEARER_TOKEN}`,
+      'Content-Type': 'application/json',
+    };
+    
     const response = await fetch(searchUrl.toString(), {
-      headers: {
-        'Authorization': `Bearer ${env.TWITTER_BEARER_TOKEN}`,
-        'Content-Type': 'application/json',
-      }
+      headers: requestHeaders
     });
 
+    const responseBody = await response.text();
+    
+    // Log the detailed API call for debugging
+    await logTwitterAPICall('GET', searchUrl.toString(), requestHeaders, null, response, responseBody, env, startTime);
+
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Twitter API error: ${response.status} ${response.statusText} - ${errorText}`);
+      throw new Error(`Twitter API error: ${response.status} ${response.statusText} - ${responseBody}`);
     }
 
-    const searchResults: TwitterV2SearchResponse = await response.json();
+    const searchResults: TwitterV2SearchResponse = JSON.parse(responseBody);
 
     console.log('Smart Twitter search completed:', {
       resultCount: searchResults.data?.length || 0,
@@ -3180,21 +3308,28 @@ async function replyToTweet(
     const authHeader = await generateTwitterOAuthSignature('POST', url, {}, env);
     
     // Post the reply using Twitter API v2
+    const startTime = Date.now();
+    const requestHeaders = {
+      'Authorization': authHeader,
+      'Content-Type': 'application/json',
+    };
+    
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Authorization': authHeader,
-        'Content-Type': 'application/json',
-      },
+      headers: requestHeaders,
       body: JSON.stringify(tweetData)
     });
     
+    const responseBody = await response.text();
+    
+    // Log the detailed API call for debugging
+    await logTwitterAPICall('POST', url, requestHeaders, tweetData, response, responseBody, env, startTime);
+    
     if (!response.ok) {
-      const errorData = await response.text();
-      throw new Error(`Twitter API error: ${response.status} ${response.statusText} - ${errorData}`);
+      throw new Error(`Twitter API error: ${response.status} ${response.statusText} - ${responseBody}`);
     }
     
-    const replyResponse: TwitterV2TweetResponse = await response.json();
+    const replyResponse: TwitterV2TweetResponse = JSON.parse(responseBody);
     
     console.log('Reply posted successfully:', {
       replyTweetId: replyResponse.data.id,
@@ -3275,21 +3410,28 @@ async function likeTweet(
     const authHeader = await generateTwitterOAuthSignature('POST', url, {}, env);
     
     // Post the like using Twitter API v2
+    const startTime = Date.now();
+    const requestHeaders = {
+      'Authorization': authHeader,
+      'Content-Type': 'application/json',
+    };
+    
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Authorization': authHeader,
-        'Content-Type': 'application/json',
-      },
+      headers: requestHeaders,
       body: JSON.stringify(likeData)
     });
     
+    const responseBody = await response.text();
+    
+    // Log the detailed API call for debugging
+    await logTwitterAPICall('POST', url, requestHeaders, likeData, response, responseBody, env, startTime);
+    
     if (!response.ok) {
-      const errorData = await response.text();
-      throw new Error(`Twitter API error: ${response.status} ${response.statusText} - ${errorData}`);
+      throw new Error(`Twitter API error: ${response.status} ${response.statusText} - ${responseBody}`);
     }
     
-    const likeResponse: TwitterV2LikeResponse = await response.json();
+    const likeResponse: TwitterV2LikeResponse = JSON.parse(responseBody);
     
     console.log('Tweet liked successfully:', {
       tweetId,
@@ -3335,20 +3477,27 @@ async function getBotUserId(env: Env): Promise<string | null> {
     // Use the verify_credentials endpoint to get our own user info
     const url = 'https://api.twitter.com/1.1/account/verify_credentials.json';
     const authHeader = await generateTwitterOAuthSignature('GET', url, {}, env);
+    const startTime = Date.now();
+    const requestHeaders = {
+      'Authorization': authHeader,
+    };
     
     const response = await fetch(url, {
       method: 'GET',
-      headers: {
-        'Authorization': authHeader,
-      }
+      headers: requestHeaders
     });
+    
+    const responseBody = await response.text();
+    
+    // Log the detailed API call for debugging
+    await logTwitterAPICall('GET', url, requestHeaders, null, response, responseBody, env, startTime);
     
     if (!response.ok) {
       console.error('Failed to get bot user ID:', response.status, response.statusText);
       return null;
     }
     
-    const userData: TwitterUserResponse = await response.json();
+    const userData: TwitterUserResponse = JSON.parse(responseBody);
     return userData.id_str;
     
   } catch (error) {
