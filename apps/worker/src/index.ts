@@ -1345,6 +1345,69 @@ export default {
               headers: { 'Content-Type': 'application/json' }
             });
           }
+          
+        case '/api/test/debug-promotion-query':
+          try {
+            console.log('🧪 Debugging promotion SQL query');
+            
+            // Run the exact same query as promotePopularPages
+            const query = `
+              SELECT 
+                d.page_id,
+                d.id as detection_id,
+                COUNT(pv.id) as view_count,
+                d.robots_index
+              FROM detections d
+              LEFT JOIN page_views pv ON d.page_id = pv.page_id
+              WHERE d.robots_index = 0 OR d.robots_index IS NULL
+              GROUP BY d.page_id, d.id, d.robots_index
+              HAVING COUNT(pv.id) >= 1
+              ORDER BY view_count DESC
+              LIMIT 10
+            `;
+            
+            const result = await env.DB.prepare(query).all();
+            const eligiblePages = result.results || [];
+            
+            // Also get specific info about page 32vi
+            const page32viQuery = `
+              SELECT 
+                d.page_id,
+                d.robots_index,
+                COUNT(pv.id) as view_count
+              FROM detections d
+              LEFT JOIN page_views pv ON d.page_id = pv.page_id
+              WHERE d.page_id = '32vi'
+              GROUP BY d.page_id, d.robots_index
+            `;
+            
+            const page32viResult = await env.DB.prepare(page32viQuery).all();
+            const page32viData = page32viResult.results?.[0] || null;
+            
+            return new Response(JSON.stringify({
+              success: true,
+              timestamp: new Date().toISOString(),
+              debug: {
+                eligiblePages: eligiblePages,
+                totalEligibleCount: eligiblePages.length,
+                page32viSpecific: page32viData,
+                queryUsed: query
+              }
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } catch (error) {
+            console.error('❌ Debug promotion query failed:', error);
+            return new Response(JSON.stringify({
+              success: false,
+              error: error instanceof Error ? error.message : 'Unknown error',
+              timestamp: new Date().toISOString()
+            }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
         
         case '/detection/robots.txt':
           return handleRobotsTxt(request, env);
