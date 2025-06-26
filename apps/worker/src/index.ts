@@ -2567,7 +2567,21 @@ async function analyzeImageWithGroqCombined(imageUrl: string, env: Env, aiDetect
 **Title:** [3-4 word title focusing on the main subject or scene]
 **Meta Description:** [70-80 character description for meta tags, descriptive but concise]
 **Detailed Description:** [A comprehensive 2-3 paragraph analysis describing all visual elements, composition, colors, lighting, mood, subjects, and artistic qualities. Evaluate the technical and aesthetic aspects including textures, patterns, spatial relationships, and any notable artistic techniques. Describe the overall atmosphere and visual impact in rich, engaging detail that would be informative and interesting for viewers across diverse image types including photography, artwork, digital creations, and screenshots.]
-**Confidence Analysis:** [${aiDetectionScore !== undefined ? `This image scored ${Math.round(aiDetectionScore)}% likelihood of being AI-generated. Given this ${Math.round(aiDetectionScore)}% AI-detection score, analyze specific visual elements that support this assessment of being ${Math.round(aiDetectionScore)}% likely AI-generated. Look for characteristics like textures, lighting, proportions, symmetry, and other details that either confirm or explain why this image scored ${Math.round(aiDetectionScore)}% on the AI-detection scale.` : 'Analyze if the image appears unnaturally flawless, idealized, or perfect in ways that suggest AI generation. Look for telltale signs like overly smooth textures, perfect symmetry, impossible lighting, flawless skin, unrealistic proportions, or other artificial characteristics.'} Provide a 2-3 sentence explanation focusing on the visual evidence.]
+**Confidence Analysis:** [This image scored ${aiDetectionScore !== undefined ? Math.round(aiDetectionScore) : 'X'}% likelihood of being AI-generated. ${aiDetectionScore !== undefined ? `Analyze specific visual elements that support this ${Math.round(aiDetectionScore)}% AI-detection score across these categories:` : 'Analyze visual elements across multiple categories to assess AI generation likelihood:'}
+
+• Textures: ${aiDetectionScore !== undefined ? `Supporting the ${Math.round(aiDetectionScore)}% score, assess whether textures appear overly smooth, lack natural variation, or show signs of digital generation.` : 'Look for overly smooth surfaces, lack of natural texture variation, or artificially perfect material rendering.'}
+
+• Lighting & Shadows: ${aiDetectionScore !== undefined ? `Given the ${Math.round(aiDetectionScore)}% detection score, evaluate whether lighting appears natural or shows signs of artificial enhancement.` : 'Examine inconsistent light sources, impossible shadow angles, or unnaturally perfect illumination.'}
+
+• Proportions & Anatomy: ${aiDetectionScore !== undefined ? `Consistent with the ${Math.round(aiDetectionScore)}% AI likelihood, identify any anatomical inconsistencies or unnatural proportions.` : 'Check for anatomical errors, unusual scale relationships, or distorted proportions.'}
+
+• Symmetry: ${aiDetectionScore !== undefined ? `The ${Math.round(aiDetectionScore)}% score suggests examining whether symmetry appears too perfect or artificially enhanced.` : 'Assess whether symmetry appears too perfect or artificially enhanced beyond natural variation.'}
+
+• Hyperreal Aesthetics: ${aiDetectionScore !== undefined ? `Supporting the ${Math.round(aiDetectionScore)}% detection rating, analyze whether the image appears unnaturally flawless.` : 'Evaluate if the image appears unnaturally flawless, idealized, or too perfect for reality.'}
+
+• Other Details: ${aiDetectionScore !== undefined ? `Given the ${Math.round(aiDetectionScore)}% AI-detection score, identify any additional visual evidence supporting this assessment.` : 'Identify background inconsistencies, fine detail artifacts, or other subtle signs of digital generation.'}
+
+Each bullet should be 1-2 sentences focusing on specific visual evidence.]
 
 Examples:
 **Title:** Red Carpet Event
@@ -6008,6 +6022,14 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       text-align: center;
     }
     
+    /* AI Detection section styling - minimal gap */
+    .ai-detection-section {
+      padding: var(--spacing-xl) var(--spacing-lg);
+      margin-top: 0;
+      margin-bottom: var(--spacing-lg);
+      text-align: center;
+    }
+    
     .detailed-description {
       margin-top: var(--spacing-lg);
       text-align: left;
@@ -6126,6 +6148,8 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       justify-content: space-between;
       align-items: center;
       padding: calc(var(--space-3) * 0.5) 0;
+      max-width: 300px;
+      margin: 0 auto;
     }
     
     .metric-item:first-child {
@@ -6361,6 +6385,12 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
         margin-bottom: var(--spacing-lg);
       }
       
+      .ai-detection-section {
+        padding: 0 var(--spacing-lg) calc(var(--spacing-xl) * 1.2);
+        margin-top: 0; /* No gap above section */
+        margin-bottom: var(--spacing-lg);
+      }
+      
       .container {
         padding: calc(var(--spacing-xl) * 0.5) var(--spacing-lg);
         max-width: 1400px;
@@ -6370,8 +6400,10 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       /* Two-column layout on desktop */
       .main-content {
         display: flex;
-        gap: calc(var(--spacing-xl) * 1.5);
+        gap: 0;
         align-items: flex-start;
+        justify-content: center;
+        margin-bottom: 0; /* Remove margin since we're using flexbox layout */
       }
       
       .detection-row {
@@ -6397,7 +6429,8 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       }
       
       .results-section {
-        flex: 1;
+        flex: 0 0 auto;
+        width: 500px;
         max-width: none;
         text-align: center;
         display: flex;
@@ -6471,6 +6504,10 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       
       .container {
         padding: calc(var(--spacing-xl) * 0.5) calc(var(--spacing-xl) * 2);
+      }
+      
+      .main-content {
+        margin-bottom: 0; /* Ensure margin is removed on large screens too */
       }
       
       .detection-row {
@@ -6590,7 +6627,8 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
         margin-top: var(--space-3);
       }
       
-      .photo-description-section {
+      .photo-description-section,
+      .ai-detection-section {
         padding: 0 !important;
         margin-top: calc(var(--spacing-lg) * 0.7);
         margin-bottom: calc(var(--spacing-lg) * 0.7);
@@ -6815,17 +6853,17 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     </section>` : ''}
     
     <!-- AI Detection Confidence Section -->
-    <section class="photo-description-section">
+    <section class="ai-detection-section">
       <div class="header-content">
         <h2 class="header-title">
-          <span class="header-title-rest">Why It's Likely AI-Generated (${scorePercentage}% Confidence)</span>
+          <span class="header-title-rest">${scorePercentage >= 50 ? `Why It's Likely AI-Generated (${scorePercentage}% Confidence)` : `Why It's Likely Real (${100 - scorePercentage}% Confidence)`}</span>
         </h2>
       </div>
       
       <!-- AI Detection Explanation Text -->
       <div class="detailed-description">
         ${data.confidence_analysis ? 
-          `<p>• ${data.confidence_analysis}</p>` : 
+          `<div>${data.confidence_analysis.split('\n').map((line: string) => line.trim() ? `<p>${line.trim()}</p>` : '').join('')}</div>` : 
           `<p>• This analysis is based on artificial intelligence algorithms that examine various visual characteristics including patterns, textures, artifacts, and inconsistencies typically associated with AI-generated content.</p>
            <p>• The ${scorePercentage}% confidence score indicates the likelihood that this image was created using AI tools rather than traditional photography or manual creation.</p>`
         }
