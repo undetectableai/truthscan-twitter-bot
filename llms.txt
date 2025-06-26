@@ -1,0 +1,142 @@
+# TruthScan Twitter Bot - AI Image Detection Service
+
+## Project Overview
+TruthScan is an automated Twitter bot that detects AI-generated images when mentioned in tweets. It provides real-time AI detection analysis, generates detailed reports, and maintains a web interface for viewing detection results.
+
+## Architecture
+- **Cloudflare Worker**: Main backend service handling Twitter webhooks, AI detection, and web serving
+- **React Dashboard**: Analytics and monitoring interface 
+- **D1 Database**: SQLite database for storing detection results and analytics
+- **Twitter API**: Real-time tweet monitoring and automated responses
+- **Undetectable.AI API**: AI image detection service
+- **Groq API**: Advanced image analysis and description generation
+
+## Key Technologies
+- TypeScript/JavaScript
+- Cloudflare Workers & Pages
+- React + Vite (Dashboard)
+- SQLite (D1 Database)
+- Twitter API v1.1 & v2
+- RESTful APIs
+- HTML/CSS (Detection pages)
+
+## Project Structure
+```
+truthscan-twitter-bot/
+├── apps/
+│   ├── worker/                 # Cloudflare Worker (main backend)
+│   │   ├── src/index.ts       # Main worker logic, API routes, Twitter handling
+│   │   ├── wrangler.jsonc     # Worker configuration
+│   │   ├── schema.sql         # Database schema
+│   │   └── migrations/        # Database migrations
+│   └── dashboard/             # React monitoring dashboard
+│       ├── src/
+│       ├── package.json
+│       └── vite.config.ts
+├── packages/                  # Shared packages/utilities
+├── scripts/                   # Setup and utility scripts
+└── pnpm-workspace.yaml       # Monorepo configuration
+```
+
+## Core Functionality
+
+### Twitter Bot Features
+- **Mention Detection**: Monitors Twitter for @truth_scan mentions
+- **Image Analysis**: Automatically downloads and analyzes attached images
+- **AI Detection**: Uses Undetectable.AI to determine AI generation probability
+- **Response Generation**: Replies with detection scores and analysis links
+- **Multi-Image Support**: Handles tweets with multiple images
+- **Rate Limiting**: Respects Twitter API limits and implements backoff
+
+### Web Interface
+- **Detection Pages**: Individual pages for each analysis (`/d/{pageId}`)
+- **Image Serving**: Optimized image delivery with caching
+- **SEO Optimization**: Schema markup, Open Graph, Twitter Cards
+- **Responsive Design**: Mobile-friendly detection result pages
+- **Social Sharing**: Built-in sharing functionality
+
+### Database Schema
+- `detections`: Core detection results and metadata
+- `page_views`: Analytics for page visits
+- `logs`: System event logging
+- `webhook_logs`: Twitter webhook processing logs
+
+## Key Files
+
+### Worker (apps/worker/src/index.ts)
+Main application logic including:
+- Twitter webhook handling (`handleTwitterWebhook`)
+- AI detection processing (`processImageWithAI`)
+- Tweet response generation (`replyToTweet`)
+- Detection page HTML generation (`generateDetectionPageHTML`)
+- API endpoints for monitoring and debugging
+- Database operations and caching
+
+### Configuration
+- `apps/worker/wrangler.jsonc`: Worker deployment configuration
+- `apps/worker/schema.sql`: Database table definitions
+- `package.json`: Dependencies and scripts
+
+### Documentation
+- `README.md`: Project setup and usage
+- `DEPLOYMENT.md`: Deployment instructions
+- `SECURITY.md`: Security considerations
+- `DEVELOPER_GUIDE.md`: Development guidelines
+
+## API Endpoints
+
+### Public Endpoints
+- `GET /d/{pageId}`: Detection result pages
+- `GET /images/{pageId}`: Image serving
+- `GET /thumbnails/{pageId}`: Thumbnail generation
+- `GET /detection/sitemap.xml`: SEO sitemap
+- `GET /detection/robots.txt`: Search engine directives
+
+### Bot API Endpoints (`/bot-api/`)
+- `POST /webhook/twitter`: Twitter webhook handler
+- `GET /monitoring/*`: System monitoring and analytics
+- `GET /test/*`: Development testing endpoints
+
+### Monitoring & Debug
+- Page view analytics
+- Error logging and tracking
+- Performance metrics
+- Database health checks
+
+## Development Setup
+1. Install dependencies: `pnpm install`
+2. Configure environment variables (Twitter API keys, etc.)
+3. Run development: `pnpm dev`
+4. Worker runs on localhost:8787
+5. Dashboard runs on localhost:3000
+
+## External Integrations
+- **Twitter API**: Tweet monitoring, posting, user lookup
+- **Undetectable.AI**: Primary AI detection service
+- **Groq**: Advanced image analysis and descriptions
+- **Cloudflare D1**: Database storage
+- **Cloudflare KV**: Caching (if used)
+
+## Key Features
+- Real-time Twitter monitoring via webhooks
+- Multi-provider AI detection with fallbacks
+- Automatic page generation with SEO optimization
+- Comprehensive analytics and monitoring
+- Rate limiting and error handling
+- Responsive web interface
+- Social media integration
+
+## Deployment
+- Cloudflare Workers for backend
+- Automated deployments via Git
+- Environment-specific configurations
+- Database migrations and schema management
+
+## Security Considerations
+- API key management via Wrangler secrets
+- Request validation and rate limiting
+- CORS handling for cross-origin requests
+- Input sanitization and validation
+- Secure image handling and processing
+
+This project demonstrates modern serverless architecture with real-time social media integration, AI processing, and comprehensive web services. 
