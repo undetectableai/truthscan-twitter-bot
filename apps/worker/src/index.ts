@@ -1068,10 +1068,11 @@ Disallow: /webhook/
 Disallow: /images/
 Disallow: /thumbnails/
 
-# Allow indexing of promoted detection pages (50+ views)
+# Allow indexing of promoted detection pages (20+ views)
 # Individual page URLs are listed in the sitemap.xml
 
-Sitemap: ${baseUrl}/detection/sitemap.xml`;
+Sitemap: ${baseUrl}/detection/sitemap.xml
+Sitemap: https://truthscan.com/sitemap.xml`;
   
   robotsContent += `\n\n# Generated automatically at ${new Date().toISOString()}`;
   robotsContent += `\n# Pages with 20+ views are automatically promoted for indexing`;
