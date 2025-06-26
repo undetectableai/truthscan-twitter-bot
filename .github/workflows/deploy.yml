@@ -81,10 +81,12 @@ jobs:
             TWITTER_ACCESS_TOKEN
             TWITTER_ACCESS_TOKEN_SECRET
             AI_DETECTION_API_KEY
+            GROQ_API_KEY
         env:
           TWITTER_BEARER_TOKEN: ${{ secrets.TWITTER_BEARER_TOKEN }}
           TWITTER_API_KEY: ${{ secrets.TWITTER_CONSUMER_KEY }}
           TWITTER_API_KEY_SECRET: ${{ secrets.TWITTER_CONSUMER_SECRET }}
           TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
           TWITTER_ACCESS_TOKEN_SECRET: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
-          AI_DETECTION_API_KEY: ${{ secrets.UNDETECTABLE_AI_API_KEY }} 
+          AI_DETECTION_API_KEY: ${{ secrets.UNDETECTABLE_AI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }} 
