@@ -1386,6 +1386,47 @@ export default {
             });
           }
 
+        case '/api/test/promote-32vi':
+          try {
+            console.log('🧪 Direct promotion test for page 32vi');
+            
+            // Direct promotion of page 32vi for testing
+            const updateQuery = `
+              UPDATE detections 
+              SET robots_index = 1, updated_at = ? 
+              WHERE page_id = ?
+            `;
+            
+            const updateResult = await env.DB
+              .prepare(updateQuery)
+              .bind(Math.floor(Date.now() / 1000), '32vi')
+              .run();
+            
+            return new Response(JSON.stringify({
+              success: true,
+              timestamp: new Date().toISOString(),
+              testResult: {
+                pageId: '32vi',
+                updateSuccess: updateResult.success,
+                changes: updateResult.meta?.changes || 0,
+                message: updateResult.meta?.changes > 0 ? 'Page 32vi promoted successfully' : 'No changes made'
+              }
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } catch (error) {
+            console.error('❌ Direct promotion test failed:', error);
+            return new Response(JSON.stringify({
+              success: false,
+              error: error instanceof Error ? error.message : 'Unknown error',
+              timestamp: new Date().toISOString()
+            }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+
         case '/api/test/manual-page-promotion':
           try {
             console.log('🧪 Manual page promotion trigger called');
