@@ -2282,7 +2282,7 @@ async function queryDetectionResults(detectionId: string, maxAttempts = 12, dela
 }
 
 // Main function: Process image with AI detection
-async function processImageWithAI(imageUrl: string, env: Env): Promise<DetectionResult> {
+async function processImageWithAI(imageUrl: string, env: Env, tweetText?: string): Promise<DetectionResult> {
   const startTime = Date.now();
   
   try {
@@ -2350,12 +2350,12 @@ async function processImageWithAI(imageUrl: string, env: Env): Promise<Detection
     
     // Step 6: Analyze image with Groq API for description (parallel with existing detection)
     console.log('DEBUG: Step 6 - Analyzing image with Groq API...');
-    const groqResult = await analyzeImageWithGroq(imageUrl, env);
+    const groqResult = await analyzeImageWithGroq(imageUrl, env, tweetText);
     console.log('DEBUG: Groq result:', { success: groqResult.success, description: groqResult.description, error: groqResult.error });
     
     // Step 7: Generate meta description with Groq API
     console.log('DEBUG: Step 7 - Generating meta description with Groq API...');
-    const groqMetaResult = await generateMetaDescriptionWithGroq(imageUrl, env);
+    const groqMetaResult = await generateMetaDescriptionWithGroq(imageUrl, env, tweetText);
     console.log('DEBUG: Groq meta result:', { success: groqMetaResult.success, metaDescription: groqMetaResult.metaDescription, length: groqMetaResult.metaDescription.length, error: groqMetaResult.error });
     
     console.log('AI detection completed successfully:', {
@@ -2456,7 +2456,7 @@ interface GroqMetaDescriptionResult {
  * Analyze image with Groq API to extract a short description
  * Uses llama-4-scout-17b-16e-instruct model for vision analysis
  */
-async function analyzeImageWithGroq(imageUrl: string, env: Env): Promise<GroqImageAnalysisResult> {
+async function analyzeImageWithGroq(imageUrl: string, env: Env, tweetText?: string): Promise<GroqImageAnalysisResult> {
   const startTime = Date.now();
   
   try {
@@ -2480,7 +2480,7 @@ async function analyzeImageWithGroq(imageUrl: string, env: Env): Promise<GroqIma
             content: [
               {
                 type: 'text',
-                text: 'Describe this image in 3-4 words maximum, focusing on the main subject or scene. Examples: "Red Carpet Event", "Beach Sunset Photo", "City Street Scene", "Portrait Photo", "Group Selfie". Be concise and descriptive.'
+                text: `Describe this image in 3-4 words maximum, focusing on the main subject or scene. Examples: "Red Carpet Event", "Beach Sunset Photo", "City Street Scene", "Portrait Photo", "Group Selfie". Be concise and descriptive.${tweetText ? `\n\nAdditional context from the original tweet: "${tweetText}"` : ''}`
               },
               {
                 type: 'image_url',
@@ -2549,7 +2549,7 @@ async function analyzeImageWithGroq(imageUrl: string, env: Env): Promise<GroqIma
  * Format: "TruthScan detected a 66% chance this [DESCRIPTION] is AI-generated. Posted by @username"
  * Target: ~70-80 characters for the description part to keep total under 160 chars
  */
-async function generateMetaDescriptionWithGroq(imageUrl: string, env: Env): Promise<GroqMetaDescriptionResult> {
+async function generateMetaDescriptionWithGroq(imageUrl: string, env: Env, tweetText?: string): Promise<GroqMetaDescriptionResult> {
   const startTime = Date.now();
   
   try {
@@ -2573,7 +2573,7 @@ async function generateMetaDescriptionWithGroq(imageUrl: string, env: Env): Prom
             content: [
               {
                 type: 'text',
-                text: 'Describe this image in 70-80 characters maximum for a meta description. Focus on the main subject, scene, or activity. Be descriptive but concise. Examples: "professional headshot of a business executive", "sunset landscape with mountains and lake", "group selfie at a wedding reception", "modern city skyline at night", "close-up portrait of a smiling woman". Do not include punctuation at the end.'
+                text: `Describe this image in 70-80 characters maximum for a meta description. Focus on the main subject, scene, or activity. Be descriptive but concise. Examples: "professional headshot of a business executive", "sunset landscape with mountains and lake", "group selfie at a wedding reception", "modern city skyline at night", "close-up portrait of a smiling woman". Do not include punctuation at the end.${tweetText ? `\n\nAdditional context from the original tweet: "${tweetText}"` : ''}`
               },
               {
                 type: 'image_url',
@@ -3320,7 +3320,7 @@ async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTw
       
       try {
         console.log(`Processing image ${index + 1}/${imageUrls.length}: ${imageUrl}`);
-        const detectionResult = await processImageWithAI(imageUrl, env);
+        const detectionResult = await processImageWithAI(imageUrl, env, tweetData.text);
         
         // Store result in database (without sending individual reply)
         const insertResult = await insertDetection(env, {
@@ -4455,7 +4455,7 @@ async function handleGroqTest(_request: Request, env: Env): Promise<Response> {
     
     // Test with a sample image URL
     const testImageUrl = 'https://pbs.twimg.com/media/F0pKk50WcAE4337.jpg';
-    const groqResult = await analyzeImageWithGroq(testImageUrl, env);
+    const groqResult = await analyzeImageWithGroq(testImageUrl, env, 'Test image for Groq API verification');
     
     return new Response(JSON.stringify({
       success: true,
