@@ -2348,15 +2348,17 @@ async function processImageWithAI(imageUrl: string, env: Env, tweetText?: string
     // Get image data as ArrayBuffer for database storage
     const imageArrayBuffer = await downloadResult.blob.arrayBuffer();
     
-    // Step 6: Analyze image with Groq API for description (parallel with existing detection)
-    console.log('DEBUG: Step 6 - Analyzing image with Groq API...');
-    const groqResult = await analyzeImageWithGroq(imageUrl, env, tweetText, hashtags);
-    console.log('DEBUG: Groq result:', { success: groqResult.success, description: groqResult.description, hashtags: hashtags, error: groqResult.error });
-    
-    // Step 7: Generate meta description with Groq API
-    console.log('DEBUG: Step 7 - Generating meta description with Groq API...');
-    const groqMetaResult = await generateMetaDescriptionWithGroq(imageUrl, env, tweetText, hashtags);
-    console.log('DEBUG: Groq meta result:', { success: groqMetaResult.success, metaDescription: groqMetaResult.metaDescription, length: groqMetaResult.metaDescription.length, hashtags: hashtags, error: groqMetaResult.error });
+    // Step 6: Combined Groq analysis - get both title and meta description in one API call
+    console.log('DEBUG: Step 6 - Running combined Groq analysis (title + meta description)...');
+    const groqCombinedResult = await analyzeImageWithGroqCombined(imageUrl, env, tweetText, hashtags);
+    console.log('DEBUG: Combined Groq result:', { 
+      success: groqCombinedResult.success, 
+      title: groqCombinedResult.title, 
+      metaDescription: groqCombinedResult.metaDescription, 
+      metaLength: groqCombinedResult.metaDescription.length, 
+      hashtags: hashtags, 
+      error: groqCombinedResult.error 
+    });
     
     console.log('AI detection completed successfully:', {
       aiProbability: result,
@@ -2364,8 +2366,8 @@ async function processImageWithAI(imageUrl: string, env: Env, tweetText?: string
       confidence,
       processingTimeMs: processingTime,
       imageSize: imageArrayBuffer.byteLength,
-      imageDescription: groqResult.description,
-      metaDescription: groqMetaResult.metaDescription
+      imageDescription: groqCombinedResult.title,
+      metaDescription: groqCombinedResult.metaDescription
     });
     
     return {
@@ -2376,8 +2378,8 @@ async function processImageWithAI(imageUrl: string, env: Env, tweetText?: string
       processingTimeMs: processingTime,
       imageData: imageArrayBuffer,
       imageContentType: downloadResult.contentType || 'image/jpeg',
-      imageDescription: groqResult.success ? groqResult.description : undefined,
-      metaDescription: groqMetaResult.success ? groqMetaResult.metaDescription : undefined
+      imageDescription: groqCombinedResult.success ? groqCombinedResult.title : undefined,
+      metaDescription: groqCombinedResult.success ? groqCombinedResult.metaDescription : undefined
     };
     
   } catch (error) {
@@ -2438,33 +2440,40 @@ async function getPlaceholderImage(): Promise<ArrayBuffer> {
  * Groq API Integration for Image Analysis
  */
 
-interface GroqImageAnalysisResult {
-  success: boolean;
-  description: string;
-  processingTimeMs: number;
-  error?: string;
-}
 
-interface GroqMetaDescriptionResult {
+
+interface GroqCombinedAnalysisResult {
   success: boolean;
+  title: string;
   metaDescription: string;
   processingTimeMs: number;
   error?: string;
 }
 
+
+
 /**
- * Analyze image with Groq API to extract a short description
- * Uses llama-4-scout-17b-16e-instruct model for vision analysis
+ * Combined Groq analysis - generates both title and meta description in one API call
+ * More efficient than separate calls - saves tokens, latency, and cost
  */
-async function analyzeImageWithGroq(imageUrl: string, env: Env, tweetText?: string, hashtags?: string[]): Promise<GroqImageAnalysisResult> {
+async function analyzeImageWithGroqCombined(imageUrl: string, env: Env, tweetText?: string, hashtags?: string[]): Promise<GroqCombinedAnalysisResult> {
   const startTime = Date.now();
   
   try {
-    console.log('Starting Groq image analysis for:', imageUrl);
+    console.log('Starting combined Groq image analysis for:', imageUrl);
     
     if (!env.GROQ_API_KEY) {
       throw new Error('GROQ_API_KEY not configured');
     }
+
+    const contextInfo = [];
+    if (tweetText) {
+      contextInfo.push(`Original tweet: "${tweetText}"`);
+    }
+    if (hashtags && hashtags.length > 0) {
+      contextInfo.push(`Hashtags: ${hashtags.map(tag => `#${tag}`).join(', ')}`);
+    }
+    const contextString = contextInfo.length > 0 ? `\n\nContext:\n${contextInfo.join('\n')}` : '';
 
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -2480,100 +2489,18 @@ async function analyzeImageWithGroq(imageUrl: string, env: Env, tweetText?: stri
             content: [
               {
                 type: 'text',
-                text: `Describe this image in 3-4 words maximum, focusing on the main subject or scene. Examples: "Red Carpet Event", "Beach Sunset Photo", "City Street Scene", "Portrait Photo", "Group Selfie". Be concise and descriptive.${tweetText ? `\n\nAdditional context from the original tweet: "${tweetText}"` : ''}${hashtags && hashtags.length > 0 ? `\n\nHashtags from the original post: ${hashtags.map(tag => `#${tag}`).join(', ')}` : ''}`
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: imageUrl
-                }
-              }
-            ]
-          }
-        ],
-        temperature: 0.3,
-        max_completion_tokens: 50,
-        top_p: 1,
-        stream: false
-      })
-    });
+                text: `Analyze this image and provide exactly two descriptions in JSON format:
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Groq API error ${response.status}: ${errorText}`);
-    }
+1. "title": A concise 3-4 word title focusing on the main subject or scene (e.g., "Red Carpet Event", "Beach Sunset Photo", "City Street Scene")
+2. "metaDescription": A 70-80 character description for meta tags, descriptive but concise (e.g., "professional headshot of a business executive", "sunset landscape with mountains and lake")
 
-    const data = await response.json() as {
-      choices: Array<{
-        message: {
-          content: string;
-        };
-      }>;
-    };
-
-    const description = data.choices?.[0]?.message?.content?.trim() || 'Image';
-    const processingTime = Date.now() - startTime;
-
-    console.log('Groq image analysis completed:', {
-      description,
-      processingTimeMs: processingTime
-    });
-
-    return {
-      success: true,
-      description: description.replace(/[^\w\s-]/g, ''), // Clean up punctuation for URL safety
-      processingTimeMs: processingTime
-    };
-
-  } catch (error) {
-    const processingTime = Date.now() - startTime;
-    console.error('Groq image analysis failed:', error);
-    
-    // Log API error for monitoring
-    await MonitoringEvents.logAPIError(env, 'Groq Image Analysis', error, { 
-      imageUrl, 
-      processingTimeMs: processingTime 
-    });
-
-    return {
-      success: false,
-      description: 'Image',
-      processingTimeMs: processingTime,
-      error: error instanceof Error ? error.message : 'Unknown Groq error'
-    };
-  }
+Return ONLY valid JSON in this format:
+{
+  "title": "3-4 word title here",
+  "metaDescription": "70-80 character description here"
 }
 
-/**
- * Generate meta description using Groq AI
- * Format: "TruthScan detected a 66% chance this [DESCRIPTION] is AI-generated. Posted by @username"
- * Target: ~70-80 characters for the description part to keep total under 160 chars
- */
-async function generateMetaDescriptionWithGroq(imageUrl: string, env: Env, tweetText?: string, hashtags?: string[]): Promise<GroqMetaDescriptionResult> {
-  const startTime = Date.now();
-  
-  try {
-    console.log('Starting Groq meta description generation for:', imageUrl);
-    
-    if (!env.GROQ_API_KEY) {
-      throw new Error('GROQ_API_KEY not configured');
-    }
-
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `Describe this image in 70-80 characters maximum for a meta description. Focus on the main subject, scene, or activity. Be descriptive but concise. Examples: "professional headshot of a business executive", "sunset landscape with mountains and lake", "group selfie at a wedding reception", "modern city skyline at night", "close-up portrait of a smiling woman". Do not include punctuation at the end.${tweetText ? `\n\nAdditional context from the original tweet: "${tweetText}"` : ''}${hashtags && hashtags.length > 0 ? `\n\nHashtags from the original post: ${hashtags.map(tag => `#${tag}`).join(', ')}` : ''}`
+Do not include any other text or punctuation at the end of descriptions.${contextString}`
               },
               {
                 type: 'image_url',
@@ -2585,7 +2512,7 @@ async function generateMetaDescriptionWithGroq(imageUrl: string, env: Env, tweet
           }
         ],
         temperature: 0.3,
-        max_completion_tokens: 80,
+        max_completion_tokens: 150,
         top_p: 1,
         stream: false
       })
@@ -2604,33 +2531,50 @@ async function generateMetaDescriptionWithGroq(imageUrl: string, env: Env, tweet
       }>;
     };
 
-    const metaDescription = data.choices?.[0]?.message?.content?.trim() || 'image';
+    const content = data.choices?.[0]?.message?.content?.trim() || '{}';
+    console.log('Raw Groq response:', content);
+
+    // Parse JSON response
+    let parsedResult;
+    try {
+      parsedResult = JSON.parse(content);
+    } catch (parseError) {
+      console.error('Failed to parse Groq JSON response:', content);
+      throw new Error('Invalid JSON response from Groq');
+    }
+
+    const title = (parsedResult.title || 'Image').replace(/[^\w\s-]/g, '').trim();
+    const metaDescription = (parsedResult.metaDescription || 'image').replace(/[^\w\s-]/g, '').trim();
+    
     const processingTime = Date.now() - startTime;
 
-    console.log('Groq meta description completed:', {
+    console.log('Combined Groq analysis completed:', {
+      title,
       metaDescription,
-      length: metaDescription.length,
+      metaDescriptionLength: metaDescription.length,
       processingTimeMs: processingTime
     });
 
     return {
       success: true,
-      metaDescription: metaDescription.replace(/[^\w\s-]/g, ''), // Clean up punctuation for safety
+      title,
+      metaDescription,
       processingTimeMs: processingTime
     };
 
   } catch (error) {
     const processingTime = Date.now() - startTime;
-    console.error('Groq meta description generation failed:', error);
+    console.error('Combined Groq analysis failed:', error);
     
     // Log API error for monitoring
-    await MonitoringEvents.logAPIError(env, 'Groq Meta Description', error, { 
+    await MonitoringEvents.logAPIError(env, 'Groq Combined Analysis', error, { 
       imageUrl, 
       processingTimeMs: processingTime 
     });
 
     return {
       success: false,
+      title: 'Image',
       metaDescription: 'image',
       processingTimeMs: processingTime,
       error: error instanceof Error ? error.message : 'Unknown Groq error'
@@ -4455,7 +4399,7 @@ async function handleGroqTest(_request: Request, env: Env): Promise<Response> {
     
     // Test with a sample image URL
     const testImageUrl = 'https://pbs.twimg.com/media/F0pKk50WcAE4337.jpg';
-    const groqResult = await analyzeImageWithGroq(testImageUrl, env, 'Test image for Groq API verification', ['test', 'verification']);
+    const groqResult = await analyzeImageWithGroqCombined(testImageUrl, env, 'Test image for Groq API verification', ['test', 'verification']);
     
     return new Response(JSON.stringify({
       success: true,
