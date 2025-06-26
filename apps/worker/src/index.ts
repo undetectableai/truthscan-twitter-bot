@@ -1389,11 +1389,36 @@ export default {
         case '/api/test/manual-page-promotion':
           try {
             console.log('🧪 Manual page promotion trigger called');
+            
+            // First, run the query directly to see what we get
+            const directQuery = `
+              SELECT 
+                d.page_id,
+                d.id as detection_id,
+                COUNT(pv.id) as view_count,
+                d.robots_index
+              FROM detections d
+              LEFT JOIN page_views pv ON d.page_id = pv.page_id
+              WHERE d.robots_index = 0 OR d.robots_index IS NULL
+              GROUP BY d.page_id, d.id, d.robots_index
+              HAVING COUNT(pv.id) >= 5
+              ORDER BY view_count DESC
+            `;
+            
+            const directResult = await env.DB.prepare(directQuery).all();
+            
+            // Then call the actual promotion function
             const result = await promotePopularPages(env);
+            
             return new Response(JSON.stringify({
               success: true,
               timestamp: new Date().toISOString(),
-              result: result
+              directQueryResults: {
+                success: directResult.success,
+                count: directResult.results?.length || 0,
+                pages: directResult.results || []
+              },
+              promotionFunctionResult: result
             }), {
               status: 200,
               headers: { 'Content-Type': 'application/json' }
