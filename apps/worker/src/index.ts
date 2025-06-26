@@ -2425,8 +2425,21 @@ function convertV2ToWebhookFormat(v2Tweet: any): TwitterTweet {
  */
 function extractImageUrls(tweet: TwitterTweet): string[] {
   try {
+    // Debug: Check both entities sources
+    const extendedMedia = tweet.extended_entities?.media || [];
+    const entitiesMedia = tweet.entities?.media || [];
+    
+    console.log('🔍 MEDIA DEBUGGING:', {
+      hasExtendedEntities: !!tweet.extended_entities,
+      hasEntitiesMedia: !!tweet.entities?.media,
+      extendedMediaCount: extendedMedia.length,
+      entitiesMediaCount: entitiesMedia.length,
+      extendedMedia: extendedMedia.map(m => ({ id: m.id, type: m.type, url: m.media_url_https })),
+      entitiesMedia: entitiesMedia.map(m => ({ id: m.id, type: m.type, url: m.media_url_https }))
+    });
+    
     // Prefer extended_entities.media over entities.media for complete media info
-    const mediaEntities = tweet.extended_entities?.media || tweet.entities?.media || [];
+    const mediaEntities = extendedMedia.length > 0 ? extendedMedia : entitiesMedia;
     
     // Filter for photo type media and extract HTTPS URLs
     const imageUrls = mediaEntities
@@ -2434,14 +2447,20 @@ function extractImageUrls(tweet: TwitterTweet): string[] {
       .map(media => media.media_url_https)
       .filter(url => url); // Remove any undefined/null URLs
     
-    console.log('Extracted media info:', {
+    // Deduplicate URLs (in case of Twitter API quirks)
+    const uniqueImageUrls = [...new Set(imageUrls)];
+    
+    console.log('📸 EXTRACTED MEDIA RESULTS:', {
       totalMediaEntities: mediaEntities.length,
       photoEntities: imageUrls.length,
+      uniquePhotoEntities: uniqueImageUrls.length,
       mediaTypes: mediaEntities.map(m => m.type),
-      imageUrls
+      allImageUrls: imageUrls,
+      uniqueImageUrls: uniqueImageUrls,
+      duplicatesRemoved: imageUrls.length - uniqueImageUrls.length
     });
     
-    return imageUrls;
+    return uniqueImageUrls;
     
   } catch (error) {
     console.error('Error extracting image URLs:', error);
@@ -2693,34 +2712,41 @@ function resolveUrl(url: string, baseUrl: string): string | null {
 }
 
 /**
- * Enhanced image URL extraction that includes both media entities and Open Graph images
+ * Enhanced image URL extraction that prioritizes direct media, falls back to Open Graph
  */
 async function extractAllImageUrls(tweet: TwitterTweet): Promise<string[]> {
   try {
-    console.log('Starting comprehensive image URL extraction...');
+    console.log('Starting image URL extraction...');
     
-    // Extract direct media attachments
+    // Extract direct media attachments first
     const mediaImages = extractImageUrls(tweet);
+    console.log(`Found ${mediaImages.length} direct media images`);
     
-    // Extract Open Graph images from URLs
+    // If we have direct media images, use those and skip Open Graph extraction
+    if (mediaImages.length > 0) {
+      console.log('Using direct media images only (skipping Open Graph extraction):', {
+        mediaImages: mediaImages.length,
+        images: mediaImages
+      });
+      return mediaImages;
+    }
+    
+    // No direct images found, try Open Graph extraction as fallback
+    console.log('No direct media images found, attempting Open Graph extraction...');
     const ogImages = await extractOpenGraphImages(tweet);
     
-    // Combine and deduplicate
-    const allImages = [...mediaImages, ...ogImages];
-    const uniqueImages = [...new Set(allImages)];
-    
-    console.log('Comprehensive image extraction complete:', {
+    console.log('Open Graph fallback extraction complete:', {
       mediaImages: mediaImages.length,
       ogImages: ogImages.length,
-      totalUnique: uniqueImages.length,
+      totalUnique: ogImages.length,
       urlsInTweet: tweet.entities?.urls?.length || 0,
-      images: uniqueImages
+      images: ogImages
     });
     
-    return uniqueImages;
+    return ogImages;
     
   } catch (error) {
-    console.error('Error in comprehensive image URL extraction:', {
+    console.error('Error in image URL extraction:', {
       error: error instanceof Error ? error.message : 'Unknown error',
       fallbackToMediaOnly: true
     });
@@ -4121,7 +4147,7 @@ async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTw
       console.log(`⚠️ Detected ${imageUrls.length - uniqueImageUrls.length} duplicate image URLs, using ${uniqueImageUrls.length} unique URLs`);
     }
     
-    // Phase 1: Get AI detection results FAST (for immediate reply)
+    // Phase 1: Get AI detection results
     const aiDetectionPromises = uniqueImageUrls.map(async (imageUrl, index) => {
       const detectionId = crypto.randomUUID();
       const timestamp = Math.floor(Date.now() / 1000);
@@ -4159,61 +4185,16 @@ async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTw
     
     // Wait for all AI detections to complete
     const aiResults = await Promise.all(aiDetectionPromises);
-    console.log(`Completed AI detection for ${aiResults.length} images, sending immediate reply`);
+    console.log(`Completed AI detection for ${aiResults.length} images`);
     
-    // Phase 2: Send immediate Twitter reply (don't wait for Groq)
-    const replyData = aiResults.map(result => ({
-      index: result.index,
-      success: result.success,
-      aiProbability: result.aiProbability,
-      finalResult: result.finalResult,
-      error: result.error,
-      pageId: undefined // Will be filled after database insertion
-    }));
-    
-    const replyMessage = composeMultiImageReplyMessage(replyData, tweetData.hashtags, tweetData.text);
-    
-    // Send reply immediately (async, don't wait)
-    const replyPromise = replyToTweet(
-      tweetData.tweetId,
-      0, // Not used in multi-image reply
-      '',  // Not used in multi-image reply
-      env,
-      replyMessage // Pass custom message
-    );
-    
-    console.log('Sent immediate reply, now processing Groq analysis in background...');
-    
-    // Phase 3: Get Groq analysis with AI detection scores (in background)
-    const enrichmentPromises = aiResults.map(async (result) => {
+    // Phase 2: Start Groq analysis immediately (async, don't wait)
+    const groqPromises = aiResults.map(async (result) => {
+      if (!result.success || !result.aiResult) {
+        return null; // Skip Groq for failed AI detections
+      }
+      
+      console.log(`Starting Groq analysis for image ${result.index} (${Math.round(result.aiProbability)}% AI)...`);
       try {
-        if (!result.success || !result.aiResult) {
-          // For failed AI detection, store minimal data
-          const insertResult = await insertDetection(env, {
-            id: result.detectionId,
-            tweetId: tweetData.tweetId,
-            timestamp: result.timestamp,
-            imageUrl: result.imageUrl,
-            detectionScore: undefined,
-            twitterHandle: tweetData.username,
-            responseTweetId: undefined, // Will be set after reply completes
-            processingTimeMs: 0,
-            apiProvider: 'undetectable.ai',
-            imageDescription: undefined,
-            metaDescription: undefined,
-            detailedDescription: undefined,
-            confidenceAnalysis: undefined
-          });
-          
-          return {
-            ...result,
-            pageId: insertResult.pageId,
-            groqResult: null
-          };
-        }
-        
-        // Get Groq analysis with the AI detection score
-        console.log(`Getting Groq analysis for image ${result.index} (${Math.round(result.aiProbability)}% AI)...`);
         const groqResult = await analyzeImageWithGroqCombined(
           result.imageUrl, 
           env, 
@@ -4221,38 +4202,18 @@ async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTw
           tweetData.text, 
           tweetData.hashtags
         );
-        
-        // Store complete result in database
-        const insertResult = await insertDetection(env, {
-          id: result.detectionId,
-          tweetId: tweetData.tweetId,
-          timestamp: result.timestamp,
-          imageUrl: result.imageUrl,
-          detectionScore: result.aiProbability,
-          twitterHandle: tweetData.username,
-          responseTweetId: undefined, // Will be set after reply completes
-          processingTimeMs: result.aiResult.processingTimeMs,
-          apiProvider: 'undetectable.ai',
-          imageData: result.aiResult.imageData,
-          imageContentType: result.aiResult.imageContentType,
-          imageDescription: groqResult.success ? groqResult.title : undefined,
-          metaDescription: groqResult.success ? groqResult.metaDescription : undefined,
-          detailedDescription: groqResult.success ? groqResult.detailedDescription : undefined,
-          confidenceAnalysis: groqResult.success ? groqResult.confidenceAnalysis : undefined
-        });
-        
-        console.log(`Completed enrichment for image ${result.index}, stored as page ID: ${insertResult.pageId}`);
-        
-        return {
-          ...result,
-          pageId: insertResult.pageId,
-          groqResult
-        };
-        
+        return { resultIndex: result.index, groqResult };
       } catch (error) {
-        console.error(`Failed to enrich image ${result.index}:`, error);
-        
-        // Store basic result even if enrichment fails
+        console.error(`Groq analysis failed for image ${result.index}:`, error);
+        return { resultIndex: result.index, groqResult: null };
+      }
+    });
+    
+    console.log('Started Groq analysis in background, creating pages...');
+    
+    // Phase 3: Create pages in database (with AI results only, Groq will be added later)
+    const pageCreationPromises = aiResults.map(async (result) => {
+      try {
         const insertResult = await insertDetection(env, {
           id: result.detectionId,
           tweetId: tweetData.tweetId,
@@ -4260,39 +4221,117 @@ async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTw
           imageUrl: result.imageUrl,
           detectionScore: result.success ? result.aiProbability : undefined,
           twitterHandle: tweetData.username,
-          responseTweetId: undefined,
+          responseTweetId: undefined, // Will be set after reply completes
           processingTimeMs: result.aiResult?.processingTimeMs || 0,
           apiProvider: 'undetectable.ai',
           imageData: result.aiResult?.imageData,
           imageContentType: result.aiResult?.imageContentType,
+          // Leave Groq fields empty for now - will be updated later
           imageDescription: undefined,
           metaDescription: undefined,
           detailedDescription: undefined,
           confidenceAnalysis: undefined
         });
         
+        console.log(`Created page for image ${result.index}: ${insertResult.pageId}`);
+        
         return {
           ...result,
-          pageId: insertResult.pageId,
-          groqResult: null
+          pageId: insertResult.pageId
+        };
+        
+      } catch (error) {
+        console.error(`Failed to create page for image ${result.index}:`, error);
+        return {
+          ...result,
+          pageId: undefined
         };
       }
     });
     
-    // Phase 4: Wait for reply and enrichment to complete
-    const [replyResult, enrichedResults] = await Promise.all([
-      replyPromise,
-      Promise.all(enrichmentPromises)
-    ]);
+    // Wait for all pages to be created
+    const pageResults = await Promise.all(pageCreationPromises);
+    console.log(`Created ${pageResults.filter(r => r.pageId).length} pages`);
     
-    console.log(`Completed processing: AI detection + Groq analysis + database storage for ${enrichedResults.length} images`);
+    // Phase 4: Send Twitter reply with page links
+    const replyData = pageResults.map(result => ({
+      index: result.index,
+      success: result.success,
+      aiProbability: result.aiProbability,
+      finalResult: result.finalResult,
+      error: result.error,
+      pageId: result.pageId // Now includes the actual pageId
+    }));
     
-    // Update database records with reply tweet ID
+    const replyMessage = composeMultiImageReplyMessage(replyData, tweetData.hashtags, tweetData.text);
+    
+    console.log('Sending reply with page links...');
+    const replyResult = await replyToTweet(
+      tweetData.tweetId,
+      0, // Not used in multi-image reply
+      '',  // Not used in multi-image reply
+      env,
+      replyMessage // Pass custom message with page links
+    );
+    
+    console.log(`Reply sent: ${replyResult.success ? 'SUCCESS' : 'FAILED'}`);
+    
+    // Phase 5: Wait for Groq analysis to complete and update database
+    console.log('Waiting for Groq analysis to complete...');
+    const groqResults = await Promise.all(groqPromises);
+    
+    // Update database records with Groq results
+    const groqUpdatePromises = groqResults.map(async (groqResult) => {
+      if (!groqResult || !groqResult.groqResult) {
+        return null; // Skip if no Groq result
+      }
+      
+      const pageResult = pageResults.find(p => p.index === groqResult.resultIndex);
+      if (!pageResult?.pageId) {
+        console.warn(`No page found for Groq result ${groqResult.resultIndex}`);
+        return null;
+      }
+      
+      try {
+        // Update the detection record with Groq data
+        const updateQuery = `
+          UPDATE detections 
+          SET 
+            image_description = ?,
+            meta_description = ?,
+            detailed_description = ?,
+            confidence_analysis = ?
+          WHERE page_id = ?
+        `;
+        
+        await env.DB.prepare(updateQuery).bind(
+          groqResult.groqResult.success ? groqResult.groqResult.title : null,
+          groqResult.groqResult.success ? groqResult.groqResult.metaDescription : null,
+          groqResult.groqResult.success ? groqResult.groqResult.detailedDescription : null,
+          groqResult.groqResult.success ? groqResult.groqResult.confidenceAnalysis : null,
+          pageResult.pageId
+        ).run();
+        
+        console.log(`Updated page ${pageResult.pageId} with Groq analysis`);
+        return { pageId: pageResult.pageId, success: true };
+        
+      } catch (error) {
+        console.error(`Failed to update page ${pageResult.pageId} with Groq data:`, error);
+        return { pageId: pageResult.pageId, success: false, error };
+      }
+    });
+    
+    const groqUpdates = await Promise.all(groqUpdatePromises);
+    const successfulGroqUpdates = groqUpdates.filter(u => u?.success).length;
+    
+    console.log(`Updated ${successfulGroqUpdates} pages with Groq analysis`);
+    
+    // Phase 6: Update database records with reply tweet ID
     if (replyResult.success && replyResult.replyTweetId) {
       console.log('Updating database records with reply tweet ID:', replyResult.replyTweetId);
       
-      const updatePromises = enrichedResults
-        .filter(result => result.detectionId)
+      const replyUpdatePromises = pageResults
+        .filter(result => result.pageId)
         .map(result => 
           updateDetectionWithReplyId(env, result.detectionId, replyResult.replyTweetId!)
             .catch(error => {
@@ -4301,32 +4340,30 @@ async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTw
             })
         );
       
-      const updateResults = await Promise.all(updatePromises);
-      const successfulUpdates = updateResults.filter(result => result.success).length;
+      const replyUpdates = await Promise.all(replyUpdatePromises);
+      const successfulReplyUpdates = replyUpdates.filter(result => result.success).length;
       
-      console.log('Database reply ID updates:', {
-        totalDetections: enrichedResults.length,
-        updatesAttempted: updatePromises.length,
-        updatesSuccessful: successfulUpdates,
-        replyTweetId: replyResult.replyTweetId
-      });
-    } else {
-      console.error('Failed to send reply:', replyResult.error);
+      console.log(`Updated ${successfulReplyUpdates} records with reply tweet ID`);
     }
     
     // Log final processing summary
-    const successfulDetections = enrichedResults.filter(r => r.success).length;
-    const successfulEnrichments = enrichedResults.filter(r => r.groqResult?.success).length;
+    const successfulDetections = pageResults.filter(r => r.success).length;
+    const successfulPages = pageResults.filter(r => r.pageId).length;
     
     console.log('Processing completed:', {
       totalImages: uniqueImageUrls.length,
       originalImageCount: imageUrls.length,
       successfulDetections,
-      successfulEnrichments,
+      successfulPages,
+      successfulGroqUpdates,
       replySuccess: replyResult.success,
-      processingTimelineMs: {
-        immediate_reply: 'sent after AI detection',
-        background_enrichment: 'completed with Groq analysis'
+      processingFlow: {
+        phase1: 'AI detection completed',
+        phase2: 'Groq analysis started async',
+        phase3: 'Pages created with AI results',
+        phase4: 'Tweet sent with page links',
+        phase5: 'Groq analysis completed and pages updated',
+        phase6: 'Reply tweet ID updated'
       }
     });
     
