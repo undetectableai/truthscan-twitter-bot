@@ -6467,7 +6467,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
   const pageUrl = `https://truthscan.com/d/${pageId}`;
   
   // Generate dynamic, compelling meta descriptions under character limits
-  const shortDescription = `${scorePercentage}% ${classification} - AI detection analysis from TruthScan`;
+  const shortDescription = `AI Score ${scorePercentage}% - ${classification} - Click for Deep Analysis`;
   
   // Use custom Groq-generated meta description if available, otherwise fallback to default
   const longDescription = data.meta_description && data.meta_description !== 'image' 
