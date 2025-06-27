@@ -288,69 +288,20 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
     console.log('Starting AI processing for image...');
     
     // Process image with AI detection 
-    let finalImageUrl = imageUrl;
-    let tempPageId: string | null = null;
+    let aiResult: DetectionResult;
     
     if (validationSource === 'blob') {
-      // For blob uploads, create a temporary page first to serve the image via worker URL
-      console.log('🔄 Creating temporary storage for blob upload...');
+      // For blob uploads, process the blob data directly to avoid corruption
+      console.log('🔄 Processing blob upload directly with AI detection...');
+      console.log('🔧 DEBUG: Processing blob size:', imageData!.byteLength, 'bytes, type:', imageContentType);
       
-      // Generate a temporary pageId 
-      tempPageId = await generateUniqueShortId(env);
-      console.log('🔧 DEBUG: Generated tempPageId:', tempPageId);
-      if (!tempPageId) {
-        throw new Error('Failed to generate temporary page ID for blob storage');
-      }
-      
-      // Store the blob in database temporarily so we can serve it via URL
-      const tempDetectionData = {
-        id: crypto.randomUUID(),
-        tweetId: `temp_blob_${Date.now()}`,
-        timestamp: Math.floor(Date.now() / 1000), 
-        imageUrl: `blob_upload_${Date.now()}`,
-        detectionScore: 0, // Will be updated later
-        twitterHandle: `temp_${clientId}`,
-        processingTimeMs: 0, // Will be updated later
-        apiProvider: 'external_api_temp',
-        pageId: tempPageId,
-        imageData: imageData,
-        imageContentType: imageContentType
-      };
-      
-      console.log('🔧 DEBUG: Inserting temporary detection with blob size:', imageData?.byteLength, 'bytes');
-      const tempInsertResult = await insertDetection(env, tempDetectionData);
-      console.log('🔧 DEBUG: Temp insert result:', { success: tempInsertResult.success, pageId: tempInsertResult.pageId });
-      
-      if (!tempInsertResult.success) {
-        throw new Error('Failed to create temporary blob storage');
-      }
-      
-      // Create a URL that points to our worker's image endpoint via assets route
-      finalImageUrl = `https://truthscan.com/assets/image/${tempPageId}`;
-      console.log('✅ Created temporary image URL:', finalImageUrl);
-      
-      // Test if the image URL is accessible before proceeding
-      console.log('🔧 DEBUG: Testing image URL accessibility...');
-      try {
-        const testResponse = await fetch(finalImageUrl, { method: 'HEAD' });
-        console.log('🔧 DEBUG: Image URL test response:', { 
-          status: testResponse.status, 
-          ok: testResponse.ok,
-          contentType: testResponse.headers.get('content-type')
-        });
-        if (!testResponse.ok) {
-          console.error('❌ Image URL test failed - URL not accessible:', testResponse.status, testResponse.statusText);
-        }
-      } catch (testError) {
-        console.error('❌ Image URL test failed with error:', testError);
-      }
+      aiResult = await processImageWithAIFromBlob(imageData!, imageContentType!, env);
+    } else {
+      // For URL uploads, use the normal processing
+      console.log('🔄 Processing URL upload with AI detection...');
+      console.log('🔧 DEBUG: About to call processImageWithAI with URL:', imageUrl);
+      aiResult = await processImageWithAI(imageUrl, env);
     }
-    
-    // Now process with the public URL (works for both URL and blob uploads)
-    console.log('🔄 Processing image with AI detection using URL:', finalImageUrl);
-    console.log('🔧 DEBUG: About to call processImageWithAI with URL:', finalImageUrl);
-    
-    const aiResult = await processImageWithAI(finalImageUrl, env);
     
     console.log('🔧 DEBUG: AI processing result:', { 
       success: aiResult.success, 
@@ -361,16 +312,6 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
     
     if (!aiResult.success) {
       console.error('❌ AI processing failed with error:', aiResult.error);
-      
-      // If this was a blob upload, clean up the temporary page
-      if (tempPageId) {
-        console.log('🧹 Cleaning up temporary page due to AI processing failure:', tempPageId);
-        try {
-          await env.DB.prepare('DELETE FROM detections WHERE page_id = ?').bind(tempPageId).run();
-        } catch (cleanupError) {
-          console.error('Failed to cleanup temporary page:', cleanupError);
-        }
-      }
       
       const response = new Response(JSON.stringify({
         error: 'AI processing failed',
@@ -398,62 +339,22 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
     });
     
     // Store the detection result in database 
-    let insertResult: { success: boolean; pageId?: string };
-    
-    if (tempPageId) {
-      // Update the temporary page with AI results instead of creating a new one
-      console.log('🔄 Updating temporary page with AI results...');
-      try {
-        await env.DB
-          .prepare(`UPDATE detections SET 
-            detection_score = ?, 
-            processing_time_ms = ?, 
-            api_provider = ?,
-            image_description = ?,
-            meta_description = ?,
-            detailed_description = ?,
-            confidence_analysis = ?,
-            tweet_id = ?,
-            updated_at = strftime('%s', 'now')
-            WHERE page_id = ?`)
-          .bind(
-            aiResult.aiProbability,
-            aiResult.processingTimeMs,
-            'truthscan_website',
-            aiResult.imageDescription,
-            aiResult.metaDescription,
-            aiResult.detailedDescription,
-            aiResult.confidenceAnalysis,
-            `web_${Date.now()}`, // Update tweet_id from temp to final
-            tempPageId
-          )
-          .run();
-        
-        insertResult = { success: true, pageId: tempPageId };
-        console.log('✅ Updated temporary page with AI results');
-      } catch (error) {
-        console.error('❌ Failed to update temporary page:', error);
-        insertResult = { success: false };
-      }
-    } else {
-      // Create a new page (for URL uploads)
-      insertResult = await insertDetection(env, {
-        id: crypto.randomUUID(),
-        tweetId: `web_${Date.now()}`, // Use web prefix for main website requests
-        timestamp: Math.floor(Date.now() / 1000),
-        imageUrl: imageUrl,
-        detectionScore: aiResult.aiProbability,
-        twitterHandle: `web_${clientId}`, // Identify as web request
-        processingTimeMs: aiResult.processingTimeMs,
-        apiProvider: 'truthscan_website',
-        imageData: imageData,
-        imageContentType: imageContentType,
-        imageDescription: aiResult.imageDescription,
-        metaDescription: aiResult.metaDescription,
-        detailedDescription: aiResult.detailedDescription,
-        confidenceAnalysis: aiResult.confidenceAnalysis
-      });
-    }
+    const insertResult = await insertDetection(env, {
+      id: crypto.randomUUID(),
+      tweetId: `web_${Date.now()}`, // Use web prefix for main website requests
+      timestamp: Math.floor(Date.now() / 1000),
+      imageUrl: imageUrl,
+      detectionScore: aiResult.aiProbability,
+      twitterHandle: `web_${clientId}`, // Identify as web request
+      processingTimeMs: aiResult.processingTimeMs,
+      apiProvider: 'truthscan_website',
+      imageData: imageData,
+      imageContentType: imageContentType,
+      imageDescription: aiResult.imageDescription,
+      metaDescription: aiResult.metaDescription,
+      detailedDescription: aiResult.detailedDescription,
+      confidenceAnalysis: aiResult.confidenceAnalysis
+    });
     
     const processingTimeMs = Date.now() - startTime;
     
@@ -3884,7 +3785,189 @@ async function processImageWithAI(imageUrl: string, env: Env, tweetText?: string
   }
 }
 
-// Removed processImageWithAIFromBlob - now using worker URL approach instead
+/**
+ * Process image blob data directly for AI detection and analysis
+ * Used for blob uploads to avoid image corruption from download/upload cycles
+ */
+async function processImageWithAIFromBlob(
+  imageData: ArrayBuffer, 
+  contentType: string, 
+  env: Env
+): Promise<DetectionResult> {
+  const startTime = Date.now();
+  
+  try {
+    console.log('🔍 Starting direct blob AI detection process...');
+    console.log('🔧 DEBUG: Blob size:', imageData.byteLength, 'Content-Type:', contentType);
+    
+    // Convert ArrayBuffer to Blob for upload
+    const imageBlob = new Blob([imageData], { type: contentType });
+    
+    // Generate filename based on content type
+    const extension = contentType.includes('png') ? 'png' : 'jpg';
+    const filename = `blob_${Date.now()}.${extension}`;
+    
+    console.log('DEBUG: Step 1 - Getting presigned URL for blob...');
+    const presignedResult = await getPresignedUrl(filename, env);
+    console.log('DEBUG: Presigned result:', { success: presignedResult.success, error: presignedResult.error });
+    
+    if (!presignedResult.success || !presignedResult.data) {
+      const error = presignedResult.error || 'Failed to get presigned URL for blob';
+      console.error('❌ Step 1 FAILED - Presigned URL for blob:', error);
+      throw new Error(error);
+    }
+    
+    console.log('DEBUG: Step 2 - Uploading blob directly...');
+    const uploadResult = await uploadImageToPresignedUrl(
+      presignedResult.data.presigned_url,
+      imageBlob,
+      contentType
+    );
+    console.log('DEBUG: Upload result:', { success: uploadResult.success, error: uploadResult.error });
+    
+    if (!uploadResult.success) {
+      const error = uploadResult.error || 'Failed to upload blob';
+      console.error('❌ Step 2 FAILED - Blob upload:', error);
+      throw new Error(error);
+    }
+    
+    console.log('DEBUG: Step 3 - Submitting for detection...');
+    const submissionResult = await submitImageForDetection(presignedResult.data.file_path, env);
+    console.log('DEBUG: Submission result:', { success: submissionResult.success, error: submissionResult.error });
+    
+    if (!submissionResult.success || !submissionResult.data) {
+      const error = submissionResult.error || 'Failed to submit for detection';
+      console.error('❌ Step 3 FAILED - Detection submission:', error);
+      throw new Error(error);
+    }
+    
+    console.log('DEBUG: Step 4 - Querying results...');
+    const queryResult = await queryDetectionResults(submissionResult.data.id);
+    console.log('DEBUG: Query result:', { success: queryResult.success, error: queryResult.error });
+    
+    if (!queryResult.success || !queryResult.data) {
+      const error = queryResult.error || 'Failed to get detection results';
+      console.error('❌ Step 4 FAILED - Detection results query:', error);
+      throw new Error(error);
+    }
+    
+    if (queryResult.data.status !== 'done') {
+      const error = `Detection not completed: status=${queryResult.data.status}`;
+      console.error('❌ Step 4 FAILED - Detection not completed:', error);
+      throw new Error(error);
+    }
+    
+    const processingTime = Date.now() - startTime;
+    
+    // Extract results
+    const result = queryResult.data.result || 0;
+    const finalResult = queryResult.data.result_details?.final_result || 'Unknown';
+    const confidence = queryResult.data.result_details?.confidence || result;
+    
+    // Log detailed AI detection results
+    console.log('🔧 DEBUG: Raw AI detection result from Undetectable AI:', {
+      detectionId: submissionResult.data.id,
+      rawResult: result,
+      aiProbability: result,
+      aiProbabilityPercent: `${Math.round(result * 100)}%`,
+      finalResult,
+      confidence,
+      processingTimeMs: processingTime,
+      imageSize: imageData.byteLength
+    });
+
+    console.log('✅ Direct blob AI detection completed successfully');
+    console.log(`🎯 AI Detection Score: ${Math.round(result * 100)}% (${result})`);
+    console.log(`📊 Final Result: ${finalResult}`);
+    console.log(`🔒 Confidence: ${confidence}`);
+
+    // Convert blob to data URL for Groq analysis
+    console.log('🔍 Starting Groq analysis for blob image...');
+    
+    try {
+      // Convert ArrayBuffer to base64 data URL for Groq
+      const base64String = btoa(String.fromCharCode(...new Uint8Array(imageData)));
+      const dataUrl = `data:${contentType};base64,${base64String}`;
+      
+      // Run Groq analysis with AI detection score
+      const groqResult = await analyzeImageWithGroqCombined(dataUrl, env, result);
+      
+      if (groqResult.success) {
+        console.log('✅ Groq analysis completed for blob:', {
+          title: groqResult.title,
+          metaDescriptionLength: groqResult.metaDescription.length,
+          detailedDescriptionLength: groqResult.detailedDescription.length,
+          confidenceAnalysisLength: groqResult.confidenceAnalysis.length,
+          processingTimeMs: groqResult.processingTimeMs
+        });
+        
+        return {
+          success: true,
+          aiProbability: result,
+          finalResult,
+          confidence,
+          processingTimeMs: processingTime + groqResult.processingTimeMs,
+          imageData: imageData,
+          imageContentType: contentType,
+          imageDescription: groqResult.title,
+          metaDescription: groqResult.metaDescription,
+          detailedDescription: groqResult.detailedDescription,
+          confidenceAnalysis: groqResult.confidenceAnalysis
+        };
+      } else {
+        console.error('❌ Groq analysis failed for blob:', groqResult.error);
+        // Continue without Groq analysis
+        return {
+          success: true,
+          aiProbability: result,
+          finalResult,
+          confidence,
+          processingTimeMs: processingTime,
+          imageData: imageData,
+          imageContentType: contentType,
+          imageDescription: 'Image analysis unavailable',
+          metaDescription: 'AI detection result',
+          detailedDescription: 'Detailed image analysis was not available for this upload.',
+          confidenceAnalysis: 'Confidence analysis unavailable'
+        };
+      }
+    } catch (groqError) {
+      console.error('❌ Groq analysis error for blob:', groqError);
+      // Continue without Groq analysis
+      return {
+        success: true,
+        aiProbability: result,
+        finalResult,
+        confidence,
+        processingTimeMs: processingTime,
+        imageData: imageData,
+        imageContentType: contentType,
+        imageDescription: 'Image analysis unavailable',
+        metaDescription: 'AI detection result',
+        detailedDescription: 'Detailed image analysis was not available for this upload.',
+        confidenceAnalysis: 'Confidence analysis unavailable'
+      };
+    }
+    
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+    
+    console.error('❌ DIRECT BLOB AI DETECTION FAILED:', {
+      processingTimeMs: processingTime,
+      error: error instanceof Error ? error.message : String(error),
+      imageSize: imageData.byteLength
+    });
+    
+    return {
+      success: false,
+      aiProbability: 0,
+      finalResult: 'Error',
+      confidence: 0,
+      processingTimeMs: processingTime,
+      error: error instanceof Error ? error.message : 'Unknown blob detection error'
+    };
+  }
+}
 
 /**
  * Enhanced Image Handling with R2 Fallback and Thumbnail Generation
@@ -6592,13 +6675,34 @@ async function handleImageRequest(request: Request, env: Env): Promise<Response>
     // Check if we have blob data stored in the database (for API uploads)
     if (detectionResult.data.image_data && detectionResult.data.image_content_type) {
       console.log('Serving blob image for:', imageId);
+      
+      // Convert image data from database format to ArrayBuffer
+      let imageArrayBuffer: ArrayBuffer;
+      
+      if (detectionResult.data.image_data instanceof ArrayBuffer) {
+        imageArrayBuffer = detectionResult.data.image_data;
+      } else if (detectionResult.data.image_data instanceof Uint8Array) {
+        imageArrayBuffer = detectionResult.data.image_data.buffer;
+      } else if (Array.isArray(detectionResult.data.image_data)) {
+        // If it's stored as a regular array, convert to Uint8Array first
+        const uint8Array = new Uint8Array(detectionResult.data.image_data);
+        imageArrayBuffer = uint8Array.buffer;
+      } else {
+        // If it's stored in any other format, try to convert
+        console.log('Converting image data from unknown format:', typeof detectionResult.data.image_data);
+        const uint8Array = new Uint8Array(detectionResult.data.image_data);
+        imageArrayBuffer = uint8Array.buffer;
+      }
+      
+      console.log('Image data conversion successful. Size:', imageArrayBuffer.byteLength, 'bytes');
+      
       const imageHeaders = new Headers({
         'Content-Type': detectionResult.data.image_content_type,
         'Access-Control-Allow-Origin': '*'
       });
       setCacheHeaders(imageHeaders, 'STATIC_IMAGES');
       
-      const response = new Response(detectionResult.data.image_data, {
+      const response = new Response(imageArrayBuffer, {
         headers: imageHeaders
       });
 
@@ -6708,13 +6812,34 @@ async function handleThumbnailRequest(request: Request, env: Env): Promise<Respo
     // Check if we have blob data for thumbnail (for API uploads)
     if (detectionResult.data.image_data && detectionResult.data.image_content_type) {
       console.log('Serving blob thumbnail for:', detectionId);
+      
+      // Convert image data from database format to ArrayBuffer
+      let imageArrayBuffer: ArrayBuffer;
+      
+      if (detectionResult.data.image_data instanceof ArrayBuffer) {
+        imageArrayBuffer = detectionResult.data.image_data;
+      } else if (detectionResult.data.image_data instanceof Uint8Array) {
+        imageArrayBuffer = detectionResult.data.image_data.buffer;
+      } else if (Array.isArray(detectionResult.data.image_data)) {
+        // If it's stored as a regular array, convert to Uint8Array first
+        const uint8Array = new Uint8Array(detectionResult.data.image_data);
+        imageArrayBuffer = uint8Array.buffer;
+      } else {
+        // If it's stored in any other format, try to convert
+        console.log('Converting thumbnail data from unknown format:', typeof detectionResult.data.image_data);
+        const uint8Array = new Uint8Array(detectionResult.data.image_data);
+        imageArrayBuffer = uint8Array.buffer;
+      }
+      
+      console.log('Thumbnail data conversion successful. Size:', imageArrayBuffer.byteLength, 'bytes');
+      
       const thumbnailHeaders = new Headers({
         'Content-Type': detectionResult.data.image_content_type,
         'Access-Control-Allow-Origin': '*'
       });
       setCacheHeaders(thumbnailHeaders, 'STATIC_IMAGES');
       
-      const response = new Response(detectionResult.data.image_data, {
+      const response = new Response(imageArrayBuffer, {
         headers: thumbnailHeaders
       });
 
