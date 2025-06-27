@@ -4184,19 +4184,19 @@ async function analyzeImageWithGroqCombined(imageUrl: string, env: Env, aiDetect
 **Title:** [3-4 word title focusing on the main subject or scene]
 **Meta Description:** [70-80 character description for meta tags, descriptive but concise]
 **Detailed Description:** [A comprehensive 2-3 paragraph analysis describing all visual elements, composition, colors, lighting, mood, subjects, and artistic qualities. Evaluate the technical and aesthetic aspects including textures, patterns, spatial relationships, and any notable artistic techniques. Describe the overall atmosphere and visual impact in rich, engaging detail that would be informative and interesting for viewers across diverse image types including photography, artwork, digital creations, and screenshots.]
-**Confidence Analysis:** [This image scored ${aiDetectionScore !== undefined ? Math.round(aiDetectionScore) : 'X'}% likelihood of being AI-generated. ${aiDetectionScore !== undefined ? `Analyze specific visual elements that support this ${Math.round(aiDetectionScore)}% AI-detection score across these categories:` : 'Analyze visual elements across multiple categories to assess AI generation likelihood:'}
+**Confidence Analysis:** [This image scored ${aiDetectionScore !== undefined ? Math.round(aiDetectionScore <= 1 ? aiDetectionScore * 100 : aiDetectionScore) : 'X'}% likelihood of being AI-generated. ${aiDetectionScore !== undefined ? `Analyze specific visual elements that support this ${Math.round(aiDetectionScore <= 1 ? aiDetectionScore * 100 : aiDetectionScore)}% AI-detection score across these categories:` : 'Analyze visual elements across multiple categories to assess AI generation likelihood:'}
 
-• Textures: ${aiDetectionScore !== undefined ? `Supporting the ${Math.round(aiDetectionScore)}% score, assess whether textures appear overly smooth, lack natural variation, or show signs of digital generation.` : 'Look for overly smooth surfaces, lack of natural texture variation, or artificially perfect material rendering.'}
+• Textures: ${aiDetectionScore !== undefined ? `Supporting the ${Math.round(aiDetectionScore <= 1 ? aiDetectionScore * 100 : aiDetectionScore)}% score, assess whether textures appear overly smooth, lack natural variation, or show signs of digital generation.` : 'Look for overly smooth surfaces, lack of natural texture variation, or artificially perfect material rendering.'}
 
-• Lighting & Shadows: ${aiDetectionScore !== undefined ? `Given the ${Math.round(aiDetectionScore)}% detection score, evaluate whether lighting appears natural or shows signs of artificial enhancement.` : 'Examine inconsistent light sources, impossible shadow angles, or unnaturally perfect illumination.'}
+• Lighting & Shadows: ${aiDetectionScore !== undefined ? `Given the ${Math.round(aiDetectionScore <= 1 ? aiDetectionScore * 100 : aiDetectionScore)}% detection score, evaluate whether lighting appears natural or shows signs of artificial enhancement.` : 'Examine inconsistent light sources, impossible shadow angles, or unnaturally perfect illumination.'}
 
-• Proportions & Anatomy: ${aiDetectionScore !== undefined ? `Consistent with the ${Math.round(aiDetectionScore)}% AI likelihood, identify any anatomical inconsistencies or unnatural proportions.` : 'Check for anatomical errors, unusual scale relationships, or distorted proportions.'}
+• Proportions & Anatomy: ${aiDetectionScore !== undefined ? `Consistent with the ${Math.round(aiDetectionScore <= 1 ? aiDetectionScore * 100 : aiDetectionScore)}% AI likelihood, identify any anatomical inconsistencies or unnatural proportions.` : 'Check for anatomical errors, unusual scale relationships, or distorted proportions.'}
 
-• Symmetry: ${aiDetectionScore !== undefined ? `The ${Math.round(aiDetectionScore)}% score suggests examining whether symmetry appears too perfect or artificially enhanced.` : 'Assess whether symmetry appears too perfect or artificially enhanced beyond natural variation.'}
+• Symmetry: ${aiDetectionScore !== undefined ? `The ${Math.round(aiDetectionScore <= 1 ? aiDetectionScore * 100 : aiDetectionScore)}% score suggests examining whether symmetry appears too perfect or artificially enhanced.` : 'Assess whether symmetry appears too perfect or artificially enhanced beyond natural variation.'}
 
-• Hyperreal Aesthetics: ${aiDetectionScore !== undefined ? `Supporting the ${Math.round(aiDetectionScore)}% detection rating, analyze whether the image appears unnaturally flawless.` : 'Evaluate if the image appears unnaturally flawless, idealized, or too perfect for reality.'}
+• Hyperreal Aesthetics: ${aiDetectionScore !== undefined ? `Supporting the ${Math.round(aiDetectionScore <= 1 ? aiDetectionScore * 100 : aiDetectionScore)}% detection rating, analyze whether the image appears unnaturally flawless.` : 'Evaluate if the image appears unnaturally flawless, idealized, or too perfect for reality.'}
 
-• Other Details: ${aiDetectionScore !== undefined ? `Given the ${Math.round(aiDetectionScore)}% AI-detection score, identify any additional visual evidence supporting this assessment.` : 'Identify background inconsistencies, fine detail artifacts, or other subtle signs of digital generation.'}
+• Other Details: ${aiDetectionScore !== undefined ? `Given the ${Math.round(aiDetectionScore <= 1 ? aiDetectionScore * 100 : aiDetectionScore)}% AI-detection score, identify any additional visual evidence supporting this assessment.` : 'Identify background inconsistencies, fine detail artifacts, or other subtle signs of digital generation.'}
 
 Each bullet should be 1-2 sentences focusing on specific visual evidence.]
 
@@ -4724,8 +4724,20 @@ function formatHashtagsForReply(originalHashtags: string[], tweetText: string = 
  * Compose reply message based on AI detection score
  */
 function composeReplyMessage(aiProbability: number, _finalResult: string, originalHashtags: string[] = [], tweetText: string = '', pageId?: string): string {
-  // The API returns confidence as a percentage (0-100), format to 2 digits with no decimal
-  const percentage = Math.round(aiProbability);
+  // Handle AI probability format - need to determine if it's decimal (0-1) or percentage (0-100)
+  // Based on the range, auto-detect the format and normalize to percentage
+  let percentage: number;
+  
+  if (aiProbability <= 1) {
+    // Decimal format (0-1), convert to percentage
+    percentage = Math.round(aiProbability * 100);
+  } else if (aiProbability <= 100) {
+    // Already percentage format (0-100)
+    percentage = Math.round(aiProbability);
+  } else {
+    // Invalid/corrupted value, cap at 100%
+    percentage = 100;
+  }
   
   // Create base message with probability
   let message = `🧠 This image looks ${percentage}% likely to be AI-generated.`;
@@ -5061,7 +5073,11 @@ async function processAllImagesAndReply(imageUrls: string[], tweetData: ParsedTw
         return null; // Skip Groq for failed AI detections
       }
       
-      console.log(`Starting Groq analysis for image ${result.index} (${Math.round(result.aiProbability)}% AI)...`);
+      // Convert AI probability for consistent logging
+      const debugPercentage = result.aiProbability <= 1 
+        ? Math.round(result.aiProbability * 100)
+        : Math.round(result.aiProbability);
+      console.log(`Starting Groq analysis for image ${result.index} (${debugPercentage}% AI)...`);
       try {
         const groqResult = await analyzeImageWithGroqCombined(
           result.imageUrl, 
@@ -5271,7 +5287,11 @@ function composeMultiImageReplyMessage(results: Array<{
     const ordinal = ordinals[result.index - 1] || `${result.index}th`;
     
     if (result.success) {
-      const percentage = Math.round(result.aiProbability);
+      // Convert AI probability from decimal (0-1) to percentage (0-100)
+      // Handle mixed formats: decimal (0-1) vs percentage (0-100)
+      const percentage = result.aiProbability <= 1 
+        ? Math.round(result.aiProbability * 100)
+        : Math.round(result.aiProbability);
       imageAnalyses.push(`${ordinal} image: ${percentage}% AI`);
     } else {
       imageAnalyses.push(`${ordinal} image: Error`);
@@ -5285,9 +5305,14 @@ function composeMultiImageReplyMessage(results: Array<{
   if (successfulResults.length > 0) {
     const avgProbability = successfulResults.reduce((sum, r) => sum + r.aiProbability, 0) / successfulResults.length;
     
-    if (avgProbability >= 75) {
+    // Normalize average probability to percentage (0-100) for consistent thresholds
+    const avgPercentage = avgProbability <= 1 
+      ? avgProbability * 100  // Convert decimal to percentage
+      : avgProbability;       // Already percentage
+    
+    if (avgPercentage >= 75) {
       message += '\n\n🤖 Multiple images show high AI probability';
-    } else if (avgProbability >= 25) {
+    } else if (avgPercentage >= 25) {
       message += '\n\n🤔 Mixed results - some images may be AI-generated';
     } else {
       message += '\n\n👨‍🎨 Most images appear to be human-created';
