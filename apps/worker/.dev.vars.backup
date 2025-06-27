@@ -1,0 +1,5 @@
+# Wrangler environment variables for local development
+# Copy your API key from your .env file and paste it here
+AI_DETECTION_API_KEY=ULF0xWJlVN6sBS85y2QJ3iLdxjx8vSenWEBSITE_API_KEY=tsk_26e94af5950ba0bf90b639bf61e80995e3a74ae5a6497a66d1f48f23962bbb61
+
+WEBSITE_API_KEY=tsk_d4b83213e0e8f7b5358412c7658f13950a91b027caa5c006a34b55db2c87ecd9

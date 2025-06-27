@@ -128,13 +128,13 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
   }
   
   try {
-    // Parse request body - accepts detection results from main website
-    const body = await request.json() as {
-      imageUrl: string;
+    const contentType = request.headers.get('Content-Type') || '';
+    let body: {
+      imageUrl?: string;
       detection: {
-        aiProbability: number;      // 0.0-1.0
-        finalResult: string;        // "AI Generated", "Human Created", etc.
-        confidence: number;         // 0.0-1.0
+        aiProbability: number;
+        finalResult: string;
+        confidence: number;
         processingTimeMs?: number;
       };
       analysis?: {
@@ -149,29 +149,23 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
         sourceType?: string;
       };
     };
-    
-    if (!body.imageUrl || !body.detection) {
-      const response = new Response(JSON.stringify({
-        error: 'Missing required data',
-        message: 'imageUrl and detection results are required'
-      }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-      addCORSHeaders(response, request.headers.get('Origin'));
-      return response;
-    }
-    
-    // Validate that the image URL is accessible and downloadable
-    console.log('Validating image URL:', body.imageUrl);
-    try {
-      const imageValidation = await downloadImageFromUrl(body.imageUrl);
-      if (!imageValidation.success) {
-        console.error('Image validation failed:', imageValidation.error);
+    let imageData: ArrayBuffer | undefined;
+    let imageContentType: string | undefined;
+    let validationSource: 'url' | 'blob';
+
+    // Handle both JSON (with imageUrl) and multipart/form-data (with image blob)
+    if (contentType.includes('multipart/form-data')) {
+      console.log('Processing multipart/form-data request with image blob');
+      
+      // Parse multipart form data
+      const formData = await request.formData();
+      
+      // Get the image file
+      const imageFileEntry = formData.get('image');
+      if (!imageFileEntry || typeof imageFileEntry === 'string') {
         const response = new Response(JSON.stringify({
-          error: 'Invalid image URL',
-          message: `The provided image URL is not accessible or downloadable: ${imageValidation.error}`,
-          details: 'Please provide a valid, publicly accessible image URL (JPEG, PNG, GIF, WebP)'
+          error: 'Missing image file',
+          message: 'Image file is required when using multipart/form-data. Include as "image" field.'
         }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' }
@@ -179,17 +173,143 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
         addCORSHeaders(response, request.headers.get('Origin'));
         return response;
       }
-      console.log('Image validation successful:', {
-        url: body.imageUrl,
-        contentType: imageValidation.contentType,
-        filename: imageValidation.filename
+      
+      const imageFile = imageFileEntry as File;
+      
+      // Validate image file type
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+      if (!allowedTypes.includes(imageFile.type)) {
+        const response = new Response(JSON.stringify({
+          error: 'Invalid image type',
+          message: `Unsupported image type: ${imageFile.type}`,
+          details: 'Supported formats: JPEG, PNG, GIF, WebP'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+        addCORSHeaders(response, request.headers.get('Origin'));
+        return response;
+      }
+      
+      // Validate image file size (10MB limit)
+      const maxSize = 10 * 1024 * 1024; // 10MB
+      if (imageFile.size > maxSize) {
+        const response = new Response(JSON.stringify({
+          error: 'Image file too large',
+          message: `Image file size (${Math.round(imageFile.size / 1024 / 1024)}MB) exceeds 10MB limit`
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+        addCORSHeaders(response, request.headers.get('Origin'));
+        return response;
+      }
+      
+      // Store image data
+      imageData = await imageFile.arrayBuffer();
+      imageContentType = imageFile.type;
+      validationSource = 'blob';
+      
+      // Get JSON metadata
+      const metadataJson = formData.get('metadata') as string;
+      if (!metadataJson) {
+        const response = new Response(JSON.stringify({
+          error: 'Missing metadata',
+          message: 'Detection results and metadata are required as "metadata" field (JSON string)'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+        addCORSHeaders(response, request.headers.get('Origin'));
+        return response;
+      }
+      
+      try {
+        body = JSON.parse(metadataJson);
+      } catch (parseError) {
+        const response = new Response(JSON.stringify({
+          error: 'Invalid metadata JSON',
+          message: 'The metadata field must contain valid JSON'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+        addCORSHeaders(response, request.headers.get('Origin'));
+        return response;
+      }
+      
+      console.log('Image blob validation successful:', {
+        filename: imageFile.name,
+        contentType: imageFile.type,
+        size: `${Math.round(imageFile.size / 1024)}KB`
       });
-    } catch (validationError) {
-      console.error('Image validation error:', validationError);
+      
+    } else {
+      // Handle traditional JSON request with imageUrl
+      console.log('Processing JSON request with image URL');
+      
+      body = await request.json() as typeof body;
+      validationSource = 'url';
+      
+      if (!body.imageUrl) {
+        const response = new Response(JSON.stringify({
+          error: 'Missing image URL',
+          message: 'imageUrl is required when using JSON content type, or use multipart/form-data with image blob'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+        addCORSHeaders(response, request.headers.get('Origin'));
+        return response;
+      }
+      
+      // Validate that the image URL is accessible and downloadable
+      console.log('Validating image URL:', body.imageUrl);
+      try {
+        const imageValidation = await downloadImageFromUrl(body.imageUrl);
+        if (!imageValidation.success) {
+          console.error('Image validation failed:', imageValidation.error);
+          const response = new Response(JSON.stringify({
+            error: 'Invalid image URL',
+            message: `The provided image URL is not accessible or downloadable: ${imageValidation.error}`,
+            details: 'Please provide a valid, publicly accessible image URL (JPEG, PNG, GIF, WebP)'
+          }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+          });
+          addCORSHeaders(response, request.headers.get('Origin'));
+          return response;
+        }
+        
+        // Store validated image data for database
+        imageData = await imageValidation.blob?.arrayBuffer();
+        imageContentType = imageValidation.contentType;
+        
+        console.log('Image URL validation successful:', {
+          url: body.imageUrl,
+          contentType: imageValidation.contentType,
+          filename: imageValidation.filename
+        });
+      } catch (validationError) {
+        console.error('Image validation error:', validationError);
+        const response = new Response(JSON.stringify({
+          error: 'Image validation failed',
+          message: 'Unable to validate the provided image URL',
+          details: 'Please ensure the image URL is publicly accessible and returns a valid image file'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+        addCORSHeaders(response, request.headers.get('Origin'));
+        return response;
+      }
+    }
+    
+    // Validate detection data (common for both approaches)
+    if (!body.detection) {
       const response = new Response(JSON.stringify({
-        error: 'Image validation failed',
-        message: 'Unable to validate the provided image URL',
-        details: 'Please ensure the image URL is publicly accessible and returns a valid image file'
+        error: 'Missing detection data',
+        message: 'Detection results are required'
       }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' }
@@ -204,6 +324,7 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
         aiProbability: body.detection.aiProbability,
         finalResult: body.detection.finalResult,
         sourceType: body.metadata?.sourceType || 'unknown',
+        validationSource: validationSource, // 'url' or 'blob'
         clientId
       },
       userAgent: body.metadata?.userAgent || request.headers.get('User-Agent') || undefined,
@@ -216,11 +337,13 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
       id: crypto.randomUUID(),
       tweetId: `web_${Date.now()}`, // Use web prefix for main website requests
       timestamp: Math.floor(Date.now() / 1000),
-      imageUrl: body.imageUrl,
+      imageUrl: body.imageUrl || `blob_upload_${Date.now()}`, // Use placeholder for blob uploads
       detectionScore: body.detection.aiProbability,
       twitterHandle: `web_${clientId}`, // Identify as web request
       processingTimeMs: body.detection.processingTimeMs || 0,
       apiProvider: 'truthscan_website',
+      imageData: imageData,
+      imageContentType: imageContentType,
       imageDescription: body.analysis?.imageDescription,
       metaDescription: body.analysis?.metaDescription,
       detailedDescription: body.analysis?.detailedDescription,
