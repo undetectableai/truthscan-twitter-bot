@@ -578,7 +578,7 @@ async function promotePopularPages(env: Env): Promise<{ success: boolean; promot
       LEFT JOIN page_views pv ON d.page_id = pv.page_id
       WHERE d.robots_index = 0 OR d.robots_index IS NULL
       GROUP BY d.page_id, d.id, d.robots_index
-      HAVING COUNT(pv.id) >= 20
+      HAVING COUNT(pv.id) >= 50
       ORDER BY view_count DESC
     `;
     
@@ -598,7 +598,7 @@ async function promotePopularPages(env: Env): Promise<{ success: boolean; promot
     }
     
     if (eligiblePages.length === 0) {
-      console.log('❌ No pages found that meet promotion criteria (20+ views, not already indexed)');
+      console.log('❌ No pages found that meet promotion criteria (50+ views, not already indexed)');
       return { 
         success: true, 
         promotedCount: 0, 
@@ -1068,7 +1068,7 @@ Disallow: /webhook/
 Disallow: /images/
 Disallow: /thumbnails/
 
-# Allow indexing of promoted detection pages (20+ views)
+# Allow indexing of promoted detection pages (50+ views)
 # Individual page URLs are listed in the sitemap.xml
 
 Sitemap: ${baseUrl}/detection/sitemap.xml
@@ -1175,11 +1175,12 @@ function generateSitemapXmlContent(indexablePages: any[], _request: Request): st
     <priority>1.0</priority>
   </url>`;
   
-  // Add each indexable detection page (only pages with 20+ views)
+  // Add each indexable detection page (only pages with 50+ views)
   for (const page of indexablePages) {
-    const pageData = page as { page_id: string; timestamp: string };
+    const pageData = page as { page_id: string; timestamp: number };
     const pageId = pageData.page_id;
-    const timestamp = new Date(pageData.timestamp);
+    // Convert Unix timestamp (seconds) to milliseconds for JavaScript Date
+    const timestamp = new Date(pageData.timestamp * 1000);
     
     sitemapContent += `
   <url>
@@ -1644,7 +1645,7 @@ export default {
               LEFT JOIN page_views pv ON d.page_id = pv.page_id
               WHERE d.robots_index = 0 OR d.robots_index IS NULL
               GROUP BY d.page_id, d.id, d.robots_index
-              HAVING COUNT(pv.id) >= 20
+              HAVING COUNT(pv.id) >= 50
               ORDER BY view_count DESC
             `;
             
@@ -1758,7 +1759,7 @@ export default {
               LEFT JOIN page_views pv ON d.page_id = pv.page_id
               WHERE d.robots_index = 0 OR d.robots_index IS NULL
               GROUP BY d.page_id, d.id, d.robots_index
-              HAVING COUNT(pv.id) >= 20
+              HAVING COUNT(pv.id) >= 50
               ORDER BY view_count DESC
             `;
             
@@ -1949,7 +1950,7 @@ export default {
               LEFT JOIN page_views pv ON d.page_id = pv.page_id
               WHERE d.robots_index = 0 OR d.robots_index IS NULL
               GROUP BY d.page_id, d.id, d.robots_index
-              HAVING COUNT(pv.id) >= 20
+              HAVING COUNT(pv.id) >= 50
               ORDER BY view_count DESC
               LIMIT 10
             `;
