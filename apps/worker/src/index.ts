@@ -978,17 +978,23 @@ async function promotePopularPages(env: Env): Promise<{ success: boolean; promot
   try {
     console.log('🔍 Checking for pages eligible for public indexing promotion...');
     
-    // Find pages with 50+ views that aren't already indexed
+    // Find pages with 50+ views that aren't already indexed AND have substantial content descriptions
     const query = `
       SELECT 
         d.page_id,
         d.id as detection_id,
         COUNT(pv.id) as view_count,
-        d.robots_index
+        d.robots_index,
+        d.detailed_description,
+        d.confidence_analysis
       FROM detections d
       LEFT JOIN page_views pv ON d.page_id = pv.page_id
-      WHERE d.robots_index = 0 OR d.robots_index IS NULL
-      GROUP BY d.page_id, d.id, d.robots_index
+      WHERE (d.robots_index = 0 OR d.robots_index IS NULL)
+        AND d.detailed_description IS NOT NULL 
+        AND d.confidence_analysis IS NOT NULL
+        AND LENGTH(d.detailed_description) >= 200
+        AND LENGTH(d.confidence_analysis) >= 200
+      GROUP BY d.page_id, d.id, d.robots_index, d.detailed_description, d.confidence_analysis
       HAVING COUNT(pv.id) >= 50
       ORDER BY view_count DESC
     `;
@@ -997,34 +1003,34 @@ async function promotePopularPages(env: Env): Promise<{ success: boolean; promot
     const eligiblePages = result.results || [];
     
     // DEBUG: Log the actual query results
-    console.log('🔍 PROMOTION DEBUG: Query executed successfully');
+    console.log('🔍 PROMOTION DEBUG: Query executed successfully with content length filters');
     console.log('🔍 PROMOTION DEBUG: Raw DB result:', { 
       success: result.success, 
       resultsLength: result.results?.length || 0,
       meta: result.meta 
     });
-    console.log('🔍 PROMOTION DEBUG: Eligible pages found:', eligiblePages.length);
+    console.log('🔍 PROMOTION DEBUG: Eligible pages found (with 200+ char descriptions):', eligiblePages.length);
     if (eligiblePages.length > 0) {
       console.log('🔍 PROMOTION DEBUG: First few eligible pages:', eligiblePages.slice(0, 3));
     }
     
     if (eligiblePages.length === 0) {
-      console.log('❌ No pages found that meet promotion criteria (50+ views, not already indexed)');
+      console.log('❌ No pages found that meet promotion criteria (50+ views, not already indexed, 200+ character descriptions)');
       return { 
         success: true, 
         promotedCount: 0, 
-        details: ['No pages eligible for promotion'] 
+        details: ['No pages eligible for promotion - content quality threshold not met'] 
       };
     }
     
-    console.log(`📈 Found ${eligiblePages.length} page(s) eligible for promotion:`, eligiblePages);
+    console.log(`📈 Found ${eligiblePages.length} page(s) eligible for promotion with substantial content:`, eligiblePages);
     
     const promotedDetails: string[] = [];
     let promotedCount = 0;
     
     // Update each eligible page to be publicly indexable
     for (const pageRow of eligiblePages) {
-      const page = pageRow as { page_id: string; detection_id: string; view_count: number; robots_index: number | null };
+      const page = pageRow as { page_id: string; detection_id: string; view_count: number; robots_index: number | null; detailed_description: string; confidence_analysis: string };
       try {
         const updateQuery = `
           UPDATE detections 
@@ -1039,7 +1045,7 @@ async function promotePopularPages(env: Env): Promise<{ success: boolean; promot
         
         if (updateResult.meta && updateResult.meta.changes && updateResult.meta.changes > 0) {
           promotedCount++;
-          const detail = `Promoted page ${page.page_id} (${page.view_count} views) to public indexing`;
+          const detail = `Promoted page ${page.page_id} (${page.view_count} views, ${page.detailed_description.length}/${page.confidence_analysis.length} char descriptions) to public indexing`;
           promotedDetails.push(detail);
           console.log(`🎉 ${detail}`);
           
@@ -1049,14 +1055,20 @@ async function promotePopularPages(env: Env): Promise<{ success: boolean; promot
               pageId: page.page_id,
               details: {
                 viewCount: page.view_count,
-                previouslyIndexed: !!page.robots_index
+                previouslyIndexed: !!page.robots_index,
+                detailedDescriptionLength: page.detailed_description.length,
+                confidenceAnalysisLength: page.confidence_analysis.length
               }
             }
           );
           
           // Log system metric for promotion
           await logSystemMetric(env, 'pages_promoted', 1, 'counter', {
-            tags: { pageId: page.page_id, viewCount: page.view_count }
+            tags: { 
+              pageId: page.page_id, 
+              viewCount: page.view_count,
+              contentQuality: 'substantial'
+            }
           });
           
         } else {
@@ -5248,11 +5260,11 @@ function setCacheHeaders(headers: Headers, cacheType: keyof typeof CACHE_CONFIG)
     headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
     headers.set('Pragma', 'no-cache');
     headers.set('Expires', '0');
-  } else {
-    // Set public cache with specified max-age and s-maxage
-    headers.set('Cache-Control', `public, max-age=${config.maxAge}, s-maxage=${config.sMaxAge}`);
-    headers.set('Vary', 'Accept-Encoding');
-  }
+      } else {
+      // Set public cache with specified max-age and s-maxage
+      headers.set('Cache-Control', `public, max-age=${config.maxAge}, s-maxage=${config.sMaxAge}`);
+      headers.set('Vary', 'Accept-Encoding');
+    }
   
   // Add ETag for cache validation (simplified for now)
   headers.set('ETag', `"${Math.random().toString(36).substr(2, 9)}"`);
@@ -8609,9 +8621,12 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       </section>
     </main>
     
-    <!-- Photo Description Section - Only show if we have proper description -->
+    <!-- Photo Description Section - Only show if we have substantial description (200+ characters) -->
     ${data.image_description && data.image_description !== 'Image' && data.image_description.length > 10 && 
-      !data.image_description.includes('digital artwork showing a futuristic cityscape') ? `
+      !data.image_description.includes('digital artwork showing a futuristic cityscape') &&
+      data.detailed_description && data.detailed_description.length >= 200 &&
+      !data.detailed_description.includes('This image appears to be AI-generated based on distinctive patterns') &&
+      !data.detailed_description.includes('Detailed image analysis was not available') ? `
     <section class="photo-description-section">
       <div class="header-content">
         <h2 class="header-title">
@@ -8620,16 +8635,15 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       </div>
       
       <!-- Detailed Description Text -->
-      ${data.detailed_description && data.detailed_description.length > 20 && 
-        !data.detailed_description.includes('This image appears to be AI-generated based on distinctive patterns') ? `
       <div class="detailed-description">
         <p>${data.detailed_description}</p>
-      </div>` : ''}
+      </div>
     </section>` : ''}
     
-    <!-- AI Detection Confidence Section - Only show if we have proper analysis -->
-    ${data.confidence_analysis && data.confidence_analysis.length > 20 && 
-      !data.confidence_analysis.includes('High confidence based on multiple detection algorithms') ? `
+    <!-- AI Detection Confidence Section - Only show if we have substantial analysis (200+ characters) -->
+    ${data.confidence_analysis && data.confidence_analysis.length >= 200 && 
+      !data.confidence_analysis.includes('High confidence based on multiple detection algorithms') &&
+      !data.confidence_analysis.includes('Confidence analysis unavailable') ? `
     <section class="ai-detection-section">
       <div class="header-content">
         <h2 class="header-title">
