@@ -8624,7 +8624,8 @@ async function getDetectionByPageId(pageId: string, env: Env): Promise<{ data: a
       SELECT 
         id, tweet_id, timestamp, image_url, detection_score, twitter_handle, 
         response_tweet_id, processing_time_ms, api_provider, page_id, 
-        created_at, updated_at, robots_index, image_description, meta_description, detailed_description, confidence_analysis
+        created_at, updated_at, robots_index, image_description, meta_description, detailed_description, confidence_analysis,
+        image_data, image_content_type
       FROM detections 
       WHERE page_id = ? 
       LIMIT 1
