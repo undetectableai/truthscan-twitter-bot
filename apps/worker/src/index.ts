@@ -287,8 +287,48 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
     
     console.log('Starting AI processing for image...');
     
-    // Process image with AI detection (same as Twitter processing)
-    const aiResult = await processImageWithAI(imageUrl, env);
+    // Process image with AI detection 
+    let finalImageUrl = imageUrl;
+    let tempPageId: string | null = null;
+    
+    if (validationSource === 'blob') {
+      // For blob uploads, create a temporary page first to serve the image via worker URL
+      console.log('🔄 Creating temporary storage for blob upload...');
+      
+      // Generate a temporary pageId 
+      tempPageId = await generateUniqueShortId(env);
+      if (!tempPageId) {
+        throw new Error('Failed to generate temporary page ID for blob storage');
+      }
+      
+      // Store the blob in database temporarily so we can serve it via URL
+      const tempDetectionData = {
+        id: crypto.randomUUID(),
+        tweetId: `temp_blob_${Date.now()}`,
+        timestamp: Math.floor(Date.now() / 1000), 
+        imageUrl: `blob_upload_${Date.now()}`,
+        detectionScore: 0, // Will be updated later
+        twitterHandle: `temp_${clientId}`,
+        processingTimeMs: 0, // Will be updated later
+        apiProvider: 'external_api_temp',
+        pageId: tempPageId,
+        imageData: imageData,
+        imageContentType: imageContentType
+      };
+      
+      const tempInsertResult = await insertDetection(env, tempDetectionData);
+      if (!tempInsertResult.success) {
+        throw new Error('Failed to create temporary blob storage');
+      }
+      
+      // Create a URL that points to our worker's image endpoint
+      finalImageUrl = `https://truthscan.com/image/${tempPageId}`;
+      console.log('✅ Created temporary image URL:', finalImageUrl);
+    }
+    
+    // Now process with the public URL (works for both URL and blob uploads)
+    console.log('🔄 Processing image with AI detection using URL:', finalImageUrl);
+    const aiResult = await processImageWithAI(finalImageUrl, env);
     
     if (!aiResult.success) {
       console.error('AI processing failed:', aiResult.error);
@@ -317,23 +357,62 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
       url: request.url
     });
     
-    // Store the detection result in database to create the page
-    const insertResult = await insertDetection(env, {
-      id: crypto.randomUUID(),
-      tweetId: `web_${Date.now()}`, // Use web prefix for main website requests
-      timestamp: Math.floor(Date.now() / 1000),
-      imageUrl: imageUrl,
-      detectionScore: aiResult.aiProbability,
-      twitterHandle: `web_${clientId}`, // Identify as web request
-      processingTimeMs: aiResult.processingTimeMs,
-      apiProvider: 'truthscan_website',
-      imageData: imageData,
-      imageContentType: imageContentType,
-      imageDescription: aiResult.imageDescription,
-      metaDescription: aiResult.metaDescription,
-      detailedDescription: aiResult.detailedDescription,
-      confidenceAnalysis: aiResult.confidenceAnalysis
-    });
+    // Store the detection result in database 
+    let insertResult: { success: boolean; pageId?: string };
+    
+    if (tempPageId) {
+      // Update the temporary page with AI results instead of creating a new one
+      console.log('🔄 Updating temporary page with AI results...');
+      try {
+        await env.DB
+          .prepare(`UPDATE detections SET 
+            detection_score = ?, 
+            processing_time_ms = ?, 
+            api_provider = ?,
+            image_description = ?,
+            meta_description = ?,
+            detailed_description = ?,
+            confidence_analysis = ?,
+            tweet_id = ?
+            WHERE page_id = ?`)
+          .bind(
+            aiResult.aiProbability,
+            aiResult.processingTimeMs,
+            'truthscan_website',
+            aiResult.imageDescription,
+            aiResult.metaDescription,
+            aiResult.detailedDescription,
+            aiResult.confidenceAnalysis,
+            `web_${Date.now()}`, // Update tweet_id from temp to final
+            tempPageId
+          )
+          .run();
+        
+        insertResult = { success: true, pageId: tempPageId };
+        console.log('✅ Updated temporary page with AI results');
+      } catch (error) {
+        console.error('❌ Failed to update temporary page:', error);
+        insertResult = { success: false };
+      }
+    } else {
+      // Create a new page (for URL uploads)
+      insertResult = await insertDetection(env, {
+        id: crypto.randomUUID(),
+        tweetId: `web_${Date.now()}`, // Use web prefix for main website requests
+        timestamp: Math.floor(Date.now() / 1000),
+        imageUrl: imageUrl,
+        detectionScore: aiResult.aiProbability,
+        twitterHandle: `web_${clientId}`, // Identify as web request
+        processingTimeMs: aiResult.processingTimeMs,
+        apiProvider: 'truthscan_website',
+        imageData: imageData,
+        imageContentType: imageContentType,
+        imageDescription: aiResult.imageDescription,
+        metaDescription: aiResult.metaDescription,
+        detailedDescription: aiResult.detailedDescription,
+        confidenceAnalysis: aiResult.confidenceAnalysis
+      });
+    }
     
     const processingTimeMs = Date.now() - startTime;
     
@@ -3758,6 +3837,8 @@ async function processImageWithAI(imageUrl: string, env: Env, tweetText?: string
     };
   }
 }
+
+// Removed processImageWithAIFromBlob - now using worker URL approach instead
 
 /**
  * Enhanced Image Handling with R2 Fallback and Thumbnail Generation
