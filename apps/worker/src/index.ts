@@ -3798,6 +3798,101 @@ async function processImageWithAI(imageUrl: string, env: Env, tweetText?: string
 }
 
 /**
+ * Image preprocessing function to handle large mobile images
+ * Resizes images while preserving EXIF metadata using Cloudflare's native image processing
+ */
+async function preprocessImageForAI(imageBuffer: ArrayBuffer, contentType: string): Promise<{
+  processedBuffer: ArrayBuffer;
+  contentType: string;
+  wasResized: boolean;
+  originalSize: number;
+  processedSize: number;
+}> {
+  const originalSize = imageBuffer.byteLength;
+  const maxFileSize = 10 * 1024 * 1024; // 10MB limit
+  const maxDimension = 2048; // Max width/height for AI processing
+  
+  console.log(`📸 Preprocessing image: ${(originalSize / 1024 / 1024).toFixed(2)}MB, type: ${contentType}`);
+  
+  // If image is small enough, return as-is
+  if (originalSize <= maxFileSize) {
+    console.log('✅ Image size acceptable, no preprocessing needed');
+    return {
+      processedBuffer: imageBuffer,
+      contentType,
+      wasResized: false,
+      originalSize,
+      processedSize: originalSize
+    };
+  }
+  
+  try {
+    console.log('🔄 Image too large, resizing for AI processing...');
+    
+    // Create a request with the image data
+    const imageRequest = new Request('https://example.com/image', {
+      method: 'POST',
+      body: imageBuffer,
+      headers: {
+        'Content-Type': contentType
+      }
+    });
+    
+    // Use Cloudflare's image processing to resize
+    const resizedResponse = await fetch(imageRequest, {
+      cf: {
+        image: {
+          // Resize to max dimension while preserving aspect ratio
+          width: maxDimension,
+          height: maxDimension,
+          fit: 'scale-down', // Never enlarge, only shrink if needed
+          // Preserve EXIF metadata including GPS if present
+          metadata: 'keep',
+          // Optimize quality for faster processing while maintaining acceptable quality
+          quality: 85,
+          // Use efficient format
+          format: contentType.includes('png') ? 'png' : 'jpeg'
+        }
+      }
+    });
+    
+    if (resizedResponse.ok) {
+      const processedBuffer = await resizedResponse.arrayBuffer();
+      const processedSize = processedBuffer.byteLength;
+      
+      console.log(`✅ Image resized: ${(originalSize / 1024 / 1024).toFixed(2)}MB → ${(processedSize / 1024 / 1024).toFixed(2)}MB`);
+      
+      return {
+        processedBuffer,
+        contentType: resizedResponse.headers.get('content-type') || contentType,
+        wasResized: true,
+        originalSize,
+        processedSize
+      };
+    } else {
+      console.log('⚠️ Image resize failed, using original');
+      return {
+        processedBuffer: imageBuffer,
+        contentType,
+        wasResized: false,
+        originalSize,
+        processedSize: originalSize
+      };
+    }
+  } catch (error) {
+    console.error('❌ Error preprocessing image:', error);
+    // Return original if preprocessing fails
+    return {
+      processedBuffer: imageBuffer,
+      contentType,
+      wasResized: false,
+      originalSize,
+      processedSize: originalSize
+    };
+  }
+}
+
+/**
  * Process image blob data directly for AI detection and analysis
  * Used for blob uploads to avoid image corruption from download/upload cycles
  */
@@ -3810,13 +3905,24 @@ async function processImageWithAIFromBlob(
   
   try {
     console.log('🔍 Starting direct blob AI detection process...');
-    console.log('🔧 DEBUG: Blob size:', imageData.byteLength, 'Content-Type:', contentType);
+    console.log('🔧 DEBUG: Original blob size:', imageData.byteLength, 'Content-Type:', contentType);
     
-    // Convert ArrayBuffer to Blob for upload
-    const imageBlob = new Blob([imageData], { type: contentType });
+    // Preprocess image to handle large mobile images
+    const preprocessedResult = await preprocessImageForAI(imageData, contentType);
+    const processedImageData = preprocessedResult.processedBuffer;
+    const processedContentType = preprocessedResult.contentType;
     
-    // Generate filename based on content type
-    const extension = contentType.includes('png') ? 'png' : 'jpg';
+    if (preprocessedResult.wasResized) {
+      console.log(`📸 Image preprocessed for AI: ${(preprocessedResult.originalSize / 1024 / 1024).toFixed(2)}MB → ${(preprocessedResult.processedSize / 1024 / 1024).toFixed(2)}MB`);
+    }
+    
+    console.log('🔧 DEBUG: Final blob size:', processedImageData.byteLength, 'Content-Type:', processedContentType);
+    
+    // Convert processed ArrayBuffer to Blob for upload
+    const imageBlob = new Blob([processedImageData], { type: processedContentType });
+    
+    // Generate filename based on processed content type
+    const extension = processedContentType.includes('png') ? 'png' : 'jpg';
     const filename = `blob_${Date.now()}.${extension}`;
     
     console.log('DEBUG: Step 1 - Getting presigned URL for blob...');
@@ -3829,11 +3935,11 @@ async function processImageWithAIFromBlob(
       throw new Error(error);
     }
     
-    console.log('DEBUG: Step 2 - Uploading blob directly...');
+    console.log('DEBUG: Step 2 - Uploading processed blob directly...');
     const uploadResult = await uploadImageToPresignedUrl(
       presignedResult.data.presigned_url,
       imageBlob,
-      contentType
+      processedContentType
     );
     console.log('DEBUG: Upload result:', { success: uploadResult.success, error: uploadResult.error });
     
@@ -3877,16 +3983,18 @@ async function processImageWithAIFromBlob(
     const confidence = queryResult.data.result_details?.confidence || result;
     
     // Log detailed AI detection results
-    console.log('🔧 DEBUG: Raw AI detection result from Undetectable AI:', {
-      detectionId: submissionResult.data.id,
-      rawResult: result,
-      aiProbability: result,
-      aiProbabilityPercent: `${Math.round(result * 100)}%`,
-      finalResult,
-      confidence,
-      processingTimeMs: processingTime,
-      imageSize: imageData.byteLength
-    });
+          console.log('🔧 DEBUG: Raw AI detection result from Undetectable AI:', {
+        detectionId: submissionResult.data.id,
+        rawResult: result,
+        aiProbability: result,
+        aiProbabilityPercent: `${Math.round(result * 100)}%`,
+        finalResult,
+        confidence,
+        processingTimeMs: processingTime,
+        originalImageSize: imageData.byteLength,
+        processedImageSize: processedImageData.byteLength,
+        wasImageResized: preprocessedResult.wasResized
+      });
 
     console.log('✅ Direct blob AI detection completed successfully');
     console.log(`🎯 AI Detection Score: ${Math.round(result * 100)}% (${result})`);
@@ -3897,9 +4005,9 @@ async function processImageWithAIFromBlob(
     console.log('🔍 Starting Groq analysis for blob image...');
     
     try {
-      // Convert ArrayBuffer to base64 data URL for Groq
-      const base64String = btoa(String.fromCharCode(...new Uint8Array(imageData)));
-      const dataUrl = `data:${contentType};base64,${base64String}`;
+      // Convert processed ArrayBuffer to base64 data URL for Groq
+      const base64String = btoa(String.fromCharCode(...new Uint8Array(processedImageData)));
+      const dataUrl = `data:${processedContentType};base64,${base64String}`;
       
       // Run Groq analysis with AI detection score
       const groqResult = await analyzeImageWithGroqCombined(dataUrl, env, result);
@@ -3919,8 +4027,8 @@ async function processImageWithAIFromBlob(
           finalResult,
           confidence,
           processingTimeMs: processingTime + groqResult.processingTimeMs,
-          imageData: imageData,
-          imageContentType: contentType,
+          imageData: processedImageData, // Use processed (potentially resized) image data
+          imageContentType: processedContentType,
           imageDescription: groqResult.title,
           metaDescription: groqResult.metaDescription,
           detailedDescription: groqResult.detailedDescription,
@@ -3935,8 +4043,8 @@ async function processImageWithAIFromBlob(
           finalResult,
           confidence,
           processingTimeMs: processingTime,
-          imageData: imageData,
-          imageContentType: contentType,
+          imageData: processedImageData, // Use processed image data
+          imageContentType: processedContentType,
           imageDescription: 'Image analysis unavailable',
           metaDescription: 'AI detection result',
           detailedDescription: 'Detailed image analysis was not available for this upload.',
@@ -3952,8 +4060,8 @@ async function processImageWithAIFromBlob(
         finalResult,
         confidence,
         processingTimeMs: processingTime,
-        imageData: imageData,
-        imageContentType: contentType,
+        imageData: processedImageData, // Use processed image data
+        imageContentType: processedContentType,
         imageDescription: 'Image analysis unavailable',
         metaDescription: 'AI detection result',
         detailedDescription: 'Detailed image analysis was not available for this upload.',
@@ -3967,7 +4075,7 @@ async function processImageWithAIFromBlob(
     console.error('❌ DIRECT BLOB AI DETECTION FAILED:', {
       processingTimeMs: processingTime,
       error: error instanceof Error ? error.message : String(error),
-      imageSize: imageData.byteLength
+      originalImageSize: imageData.byteLength
     });
     
     return {
