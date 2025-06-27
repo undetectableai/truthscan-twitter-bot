@@ -413,7 +413,8 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
             meta_description = ?,
             detailed_description = ?,
             confidence_analysis = ?,
-            tweet_id = ?
+            tweet_id = ?,
+            updated_at = strftime('%s', 'now')
             WHERE page_id = ?`)
           .bind(
             aiResult.aiProbability,
@@ -5426,8 +5427,8 @@ async function insertDetection(env: Env, data: {
     const stmt = env.DB.prepare(`
       INSERT INTO detections (
         id, tweet_id, timestamp, image_url, detection_score, twitter_handle, 
-        response_tweet_id, processing_time_ms, api_provider, page_id, image_description, meta_description, detailed_description, confidence_analysis
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        response_tweet_id, processing_time_ms, api_provider, page_id, image_description, meta_description, detailed_description, confidence_analysis, image_data, image_content_type
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
     const result = await stmt.bind(
@@ -5444,7 +5445,9 @@ async function insertDetection(env: Env, data: {
       data.imageDescription || null,
       data.metaDescription || null,
       data.detailedDescription || null,
-      data.confidenceAnalysis || null
+      data.confidenceAnalysis || null,
+      data.imageData || null,
+      data.imageContentType || null
     ).run();
     
     console.log('Detection inserted:', { 
