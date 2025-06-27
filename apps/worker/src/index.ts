@@ -73,6 +73,208 @@ interface Env {
   // Dashboard/API Protection (Optional)
   BASIC_AUTH_USERNAME?: string;
   BASIC_AUTH_PASSWORD?: string;
+  
+  // API Key for main website integration
+  WEBSITE_API_KEY?: string;
+}
+
+/**
+ * Handle external results page creation API - accepts detection results and creates a shareable page
+ */
+async function handleExternalDetectionAPI(request: Request, env: Env): Promise<Response> {
+  const startTime = Date.now();
+  
+  // Handle CORS preflight
+  if (request.method === 'OPTIONS') {
+    const response = new Response(null, { status: 204 });
+    addCORSHeaders(response, request.headers.get('Origin'));
+    return response;
+  }
+  
+  // Only allow POST requests
+  if (request.method !== 'POST') {
+    const response = new Response(JSON.stringify({
+      error: 'Method not allowed',
+      message: 'Only POST requests are supported'
+    }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' }
+    });
+    addCORSHeaders(response, request.headers.get('Origin'));
+    return response;
+  }
+  
+  // Authenticate API key
+  const authError = requireAPIKey(request, env);
+  if (authError) {
+    addCORSHeaders(authError, request.headers.get('Origin'));
+    return authError;
+  }
+  
+  // Rate limiting based on API key
+  const apiKey = request.headers.get('X-API-Key') || request.headers.get('Authorization')?.replace('Bearer ', '');
+  const clientId = `api_${apiKey?.substring(0, 8)}`;
+  
+  if (!checkAPIRateLimit(clientId, 100, 60000)) { // 100 requests per minute
+    const response = new Response(JSON.stringify({
+      error: 'Rate limit exceeded',
+      message: 'Too many requests. Maximum 100 requests per minute.'
+    }), {
+      status: 429,
+      headers: { 'Content-Type': 'application/json' }
+    });
+    addCORSHeaders(response, request.headers.get('Origin'));
+    return response;
+  }
+  
+  try {
+    // Parse request body - accepts detection results from main website
+    const body = await request.json() as {
+      imageUrl: string;
+      detection: {
+        aiProbability: number;      // 0.0-1.0
+        finalResult: string;        // "AI Generated", "Human Created", etc.
+        confidence: number;         // 0.0-1.0
+        processingTimeMs?: number;
+      };
+      analysis?: {
+        imageDescription?: string;
+        metaDescription?: string;
+        detailedDescription?: string;
+        confidenceAnalysis?: string;
+      };
+      metadata?: {
+        userAgent?: string;
+        referrer?: string;
+        sourceType?: string;
+      };
+    };
+    
+    if (!body.imageUrl || !body.detection) {
+      const response = new Response(JSON.stringify({
+        error: 'Missing required data',
+        message: 'imageUrl and detection results are required'
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+      addCORSHeaders(response, request.headers.get('Origin'));
+      return response;
+    }
+    
+    // Validate that the image URL is accessible and downloadable
+    console.log('Validating image URL:', body.imageUrl);
+    try {
+      const imageValidation = await downloadImageFromUrl(body.imageUrl);
+      if (!imageValidation.success) {
+        console.error('Image validation failed:', imageValidation.error);
+        const response = new Response(JSON.stringify({
+          error: 'Invalid image URL',
+          message: `The provided image URL is not accessible or downloadable: ${imageValidation.error}`,
+          details: 'Please provide a valid, publicly accessible image URL (JPEG, PNG, GIF, WebP)'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+        addCORSHeaders(response, request.headers.get('Origin'));
+        return response;
+      }
+      console.log('Image validation successful:', {
+        url: body.imageUrl,
+        contentType: imageValidation.contentType,
+        filename: imageValidation.filename
+      });
+    } catch (validationError) {
+      console.error('Image validation error:', validationError);
+      const response = new Response(JSON.stringify({
+        error: 'Image validation failed',
+        message: 'Unable to validate the provided image URL',
+        details: 'Please ensure the image URL is publicly accessible and returns a valid image file'
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+      addCORSHeaders(response, request.headers.get('Origin'));
+      return response;
+    }
+    
+    // Log the API request
+    await logEvent(env, 'info', 'external_results_page_request', 'Results page creation requested via API', {
+      details: {
+        aiProbability: body.detection.aiProbability,
+        finalResult: body.detection.finalResult,
+        sourceType: body.metadata?.sourceType || 'unknown',
+        clientId
+      },
+      userAgent: body.metadata?.userAgent || request.headers.get('User-Agent') || undefined,
+      ipAddress: request.headers.get('CF-Connecting-IP') || undefined,
+      url: request.url
+    });
+    
+    // Store the detection result in database to create the page
+    const insertResult = await insertDetection(env, {
+      id: crypto.randomUUID(),
+      tweetId: `web_${Date.now()}`, // Use web prefix for main website requests
+      timestamp: Math.floor(Date.now() / 1000),
+      imageUrl: body.imageUrl,
+      detectionScore: body.detection.aiProbability,
+      twitterHandle: `web_${clientId}`, // Identify as web request
+      processingTimeMs: body.detection.processingTimeMs || 0,
+      apiProvider: 'truthscan_website',
+      imageDescription: body.analysis?.imageDescription,
+      metaDescription: body.analysis?.metaDescription,
+      detailedDescription: body.analysis?.detailedDescription,
+      confidenceAnalysis: body.analysis?.confidenceAnalysis
+    });
+    
+    const processingTimeMs = Date.now() - startTime;
+    
+    // Log successful page creation
+    await logEvent(env, 'info', 'external_results_page_success', 'Results page created via API', {
+      details: {
+        pageId: insertResult.pageId,
+        aiProbability: body.detection.aiProbability,
+        finalResult: body.detection.finalResult,
+        clientId
+      },
+      processingTimeMs
+    });
+    
+    // Return just the page URL
+    const response = new Response(JSON.stringify({
+      success: true,
+      pageId: insertResult.pageId,
+      pageUrl: insertResult.pageId ? `https://truthscan.com/d/${insertResult.pageId}` : null
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+    addCORSHeaders(response, request.headers.get('Origin'));
+    return response;
+    
+  } catch (error) {
+    const processingTimeMs = Date.now() - startTime;
+    
+    await logEvent(env, 'error', 'external_results_page_error', 'Results page creation failed', {
+      details: {
+        error: error instanceof Error ? error.message : String(error),
+        clientId
+      },
+      processingTimeMs
+    });
+    
+    const response = new Response(JSON.stringify({
+      error: 'Internal server error',
+      message: 'Failed to create results page'
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+    addCORSHeaders(response, request.headers.get('Origin'));
+    return response;
+  }
 }
 
 /**
@@ -125,6 +327,86 @@ function requireBasicAuth(request: Request, env: Env): Response | null {
       }
     });
   }
+}
+
+/**
+ * API Key Authentication for external API access
+ */
+function requireAPIKey(request: Request, env: Env): Response | null {
+  // Skip authentication if API key is not configured
+  if (!env.WEBSITE_API_KEY) {
+    return new Response('API key authentication not configured', {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  const apiKey = request.headers.get('X-API-Key') || request.headers.get('Authorization')?.replace('Bearer ', '');
+  
+  if (!apiKey) {
+    return new Response(JSON.stringify({
+      error: 'API key required',
+      message: 'Include X-API-Key header or Authorization: Bearer <key>'
+    }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  if (apiKey !== env.WEBSITE_API_KEY) {
+    return new Response(JSON.stringify({
+      error: 'Invalid API key',
+      message: 'The provided API key is not valid'
+    }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  return null; // Authentication successful
+}
+
+/**
+ * CORS handling for API requests
+ */
+function addCORSHeaders(response: Response, origin: string | null): void {
+  const allowedOrigins = [
+    'https://truthscan.com',
+    'https://www.truthscan.com',
+    'https://staging.truthscan.com',
+    'http://localhost:3000', // For development
+    'http://localhost:3001'  // For development
+  ];
+  
+  if (origin && allowedOrigins.includes(origin)) {
+    response.headers.set('Access-Control-Allow-Origin', origin);
+  }
+  
+  response.headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, X-API-Key, Authorization');
+  response.headers.set('Access-Control-Max-Age', '86400'); // 24 hours
+}
+
+/**
+ * Rate limiting for API requests (simple in-memory implementation)
+ */
+const apiRateLimit = new Map<string, { requests: number; resetTime: number }>();
+
+function checkAPIRateLimit(clientId: string, maxRequests = 100, windowMs = 60000): boolean {
+  const now = Date.now();
+  const clientData = apiRateLimit.get(clientId);
+  
+  if (!clientData || now > clientData.resetTime) {
+    apiRateLimit.set(clientId, { requests: 1, resetTime: now + windowMs });
+    return true;
+  }
+  
+  if (clientData.requests >= maxRequests) {
+    return false;
+  }
+  
+  clientData.requests++;
+  return true;
 }
 
 /**
@@ -1576,8 +1858,8 @@ export default {
         url.pathname = url.pathname.replace('/bot-api/', '/api/');
       }
       
-      // Apply Basic Auth to API endpoints (but not webhook endpoints)
-      if (url.pathname.startsWith('/api/')) {
+      // Apply Basic Auth to API endpoints (but not webhook endpoints or external API)
+      if (url.pathname.startsWith('/api/') && url.pathname !== '/api/create-results-page') {
         const authResponse = requireBasicAuth(request, env);
         if (authResponse) {
           return authResponse; // Authentication failed
@@ -1630,6 +1912,7 @@ export default {
         case '/api/monitoring/dashboard':
           return handleMonitoringDashboard(request, env);
           
+
         case '/api/test/direct-promotion-query':
           try {
             console.log('🧪 Direct promotion query test called');
@@ -2009,6 +2292,10 @@ export default {
           
         case '/detection/sitemap.xml':
           return handleSitemapXml(request, env);
+          
+        case '/api/create-results-page':
+          console.log('Matched /api/create-results-page case');
+          return handleExternalDetectionAPI(request, env);
           
         default:
           // Handle image requests with pattern /images/:id
@@ -6598,6 +6885,9 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
   // Build Twitter URL
   const twitterUrl = `https://twitter.com/${data.twitter_handle}/status/${data.tweet_id}`;
   
+  // Check if this is a web API created page (not from Twitter)
+  const isWebApiPage = data.tweet_id?.startsWith('web_') || data.twitter_handle?.startsWith('web_');
+  
   // Dynamic domain detection from current request
   const currentDomain = new URL(request.url).origin;
   
@@ -7884,7 +8174,7 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
         </div>
         
         <!-- Original Tweet Link -->
-        <div class="source-link-container">
+        <div class="source-link-container" ${isWebApiPage ? 'style="display: none;"' : ''}>
           <a href="${twitterUrl}" class="source-link" target="_blank" rel="noopener noreferrer">
             🐦 View Original Tweet by @${data.twitter_handle}
           </a>
@@ -7905,23 +8195,27 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       </section>
     </main>
     
-    ${data.detailed_description ? `
-    <!-- Photo Description Section -->
+    <!-- Photo Description Section - Only show if we have proper description -->
+    ${data.image_description && data.image_description !== 'Image' && data.image_description.length > 10 && 
+      !data.image_description.includes('digital artwork showing a futuristic cityscape') ? `
     <section class="photo-description-section">
       <div class="header-content">
         <h2 class="header-title">
-          <span class="header-title-rest">Photo Description – ${data.image_description && data.image_description !== 'Image' ? data.image_description : 'Image Analysis'}</span>
+          <span class="header-title-rest">Photo Description – ${data.image_description}</span>
         </h2>
       </div>
       
       <!-- Detailed Description Text -->
+      ${data.detailed_description && data.detailed_description.length > 20 && 
+        !data.detailed_description.includes('This image appears to be AI-generated based on distinctive patterns') ? `
       <div class="detailed-description">
         <p>${data.detailed_description}</p>
-      </div>
+      </div>` : ''}
     </section>` : ''}
     
-    ${data.confidence_analysis ? `
-    <!-- AI Detection Confidence Section -->
+    <!-- AI Detection Confidence Section - Only show if we have proper analysis -->
+    ${data.confidence_analysis && data.confidence_analysis.length > 20 && 
+      !data.confidence_analysis.includes('High confidence based on multiple detection algorithms') ? `
     <section class="ai-detection-section">
       <div class="header-content">
         <h2 class="header-title">
