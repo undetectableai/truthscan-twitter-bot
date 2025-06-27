@@ -129,29 +129,15 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
   
   try {
     const contentType = request.headers.get('Content-Type') || '';
-    let body: {
-      imageUrl?: string;
-      detection: {
-        aiProbability: number;
-        finalResult: string;
-        confidence: number;
-        processingTimeMs?: number;
-      };
-      analysis?: {
-        imageDescription?: string;
-        metaDescription?: string;
-        detailedDescription?: string;
-        confidenceAnalysis?: string;
-      };
-      metadata?: {
-        userAgent?: string;
-        referrer?: string;
-        sourceType?: string;
-      };
-    };
+    let imageUrl: string | undefined;
     let imageData: ArrayBuffer | undefined;
     let imageContentType: string | undefined;
     let validationSource: 'url' | 'blob';
+    let metadata: {
+      userAgent?: string;
+      referrer?: string;
+      sourceType?: string;
+    } = {};
 
     // Handle both JSON (with imageUrl) and multipart/form-data (with image blob)
     if (contentType.includes('multipart/form-data')) {
@@ -209,33 +195,17 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
       imageData = await imageFile.arrayBuffer();
       imageContentType = imageFile.type;
       validationSource = 'blob';
+      imageUrl = `blob_upload_${Date.now()}`; // Placeholder for blob uploads
       
-      // Get JSON metadata
+      // Optional metadata from form data
       const metadataJson = formData.get('metadata') as string;
-      if (!metadataJson) {
-        const response = new Response(JSON.stringify({
-          error: 'Missing metadata',
-          message: 'Detection results and metadata are required as "metadata" field (JSON string)'
-        }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' }
-        });
-        addCORSHeaders(response, request.headers.get('Origin'));
-        return response;
-      }
-      
-      try {
-        body = JSON.parse(metadataJson);
-      } catch (parseError) {
-        const response = new Response(JSON.stringify({
-          error: 'Invalid metadata JSON',
-          message: 'The metadata field must contain valid JSON'
-        }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' }
-        });
-        addCORSHeaders(response, request.headers.get('Origin'));
-        return response;
+      if (metadataJson) {
+        try {
+          metadata = JSON.parse(metadataJson);
+        } catch (parseError) {
+          // Ignore invalid metadata, use defaults
+          console.warn('Invalid metadata JSON, using defaults:', parseError);
+        }
       }
       
       console.log('Image blob validation successful:', {
@@ -248,7 +218,14 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
       // Handle traditional JSON request with imageUrl
       console.log('Processing JSON request with image URL');
       
-      body = await request.json() as typeof body;
+      const body = await request.json() as {
+        imageUrl: string;
+        metadata?: {
+          userAgent?: string;
+          referrer?: string;
+          sourceType?: string;
+        };
+      };
       validationSource = 'url';
       
       if (!body.imageUrl) {
@@ -262,6 +239,9 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
         addCORSHeaders(response, request.headers.get('Origin'));
         return response;
       }
+      
+      imageUrl = body.imageUrl;
+      metadata = body.metadata || {};
       
       // Validate that the image URL is accessible and downloadable
       console.log('Validating image URL:', body.imageUrl);
@@ -305,13 +285,18 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
       }
     }
     
-    // Validate detection data (common for both approaches)
-    if (!body.detection) {
+    console.log('Starting AI processing for image...');
+    
+    // Process image with AI detection (same as Twitter processing)
+    const aiResult = await processImageWithAI(imageUrl, env);
+    
+    if (!aiResult.success) {
+      console.error('AI processing failed:', aiResult.error);
       const response = new Response(JSON.stringify({
-        error: 'Missing detection data',
-        message: 'Detection results are required'
+        error: 'AI processing failed',
+        message: aiResult.error || 'Unable to process image with AI detection'
       }), {
-        status: 400,
+        status: 500,
         headers: { 'Content-Type': 'application/json' }
       });
       addCORSHeaders(response, request.headers.get('Origin'));
@@ -321,13 +306,13 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
     // Log the API request
     await logEvent(env, 'info', 'external_results_page_request', 'Results page creation requested via API', {
       details: {
-        aiProbability: body.detection.aiProbability,
-        finalResult: body.detection.finalResult,
-        sourceType: body.metadata?.sourceType || 'unknown',
+        aiProbability: aiResult.aiProbability,
+        finalResult: aiResult.finalResult,
+        sourceType: metadata.sourceType || 'unknown',
         validationSource: validationSource, // 'url' or 'blob'
         clientId
       },
-      userAgent: body.metadata?.userAgent || request.headers.get('User-Agent') || undefined,
+      userAgent: metadata.userAgent || request.headers.get('User-Agent') || undefined,
       ipAddress: request.headers.get('CF-Connecting-IP') || undefined,
       url: request.url
     });
@@ -337,17 +322,17 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
       id: crypto.randomUUID(),
       tweetId: `web_${Date.now()}`, // Use web prefix for main website requests
       timestamp: Math.floor(Date.now() / 1000),
-      imageUrl: body.imageUrl || `blob_upload_${Date.now()}`, // Use placeholder for blob uploads
-      detectionScore: body.detection.aiProbability,
+      imageUrl: imageUrl,
+      detectionScore: aiResult.aiProbability,
       twitterHandle: `web_${clientId}`, // Identify as web request
-      processingTimeMs: body.detection.processingTimeMs || 0,
+      processingTimeMs: aiResult.processingTimeMs,
       apiProvider: 'truthscan_website',
       imageData: imageData,
       imageContentType: imageContentType,
-      imageDescription: body.analysis?.imageDescription,
-      metaDescription: body.analysis?.metaDescription,
-      detailedDescription: body.analysis?.detailedDescription,
-      confidenceAnalysis: body.analysis?.confidenceAnalysis
+      imageDescription: aiResult.imageDescription,
+      metaDescription: aiResult.metaDescription,
+      detailedDescription: aiResult.detailedDescription,
+      confidenceAnalysis: aiResult.confidenceAnalysis
     });
     
     const processingTimeMs = Date.now() - startTime;
@@ -356,8 +341,8 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
     await logEvent(env, 'info', 'external_results_page_success', 'Results page created via API', {
       details: {
         pageId: insertResult.pageId,
-        aiProbability: body.detection.aiProbability,
-        finalResult: body.detection.finalResult,
+        aiProbability: aiResult.aiProbability,
+        finalResult: aiResult.finalResult,
         clientId
       },
       processingTimeMs
@@ -2035,7 +2020,6 @@ export default {
         case '/api/monitoring/dashboard':
           return handleMonitoringDashboard(request, env);
           
-
         case '/api/test/direct-promotion-query':
           try {
             console.log('🧪 Direct promotion query test called');
@@ -6469,8 +6453,31 @@ async function handleImageRequest(request: Request, env: Env): Promise<Response>
       });
     }
     
-    // Proxy the image from Twitter CDN
-    if (detectionResult.data.image_url) {
+    // Check if we have blob data stored in the database (for API uploads)
+    if (detectionResult.data.image_data && detectionResult.data.image_content_type) {
+      console.log('Serving blob image for:', imageId);
+      const imageHeaders = new Headers({
+        'Content-Type': detectionResult.data.image_content_type,
+        'Access-Control-Allow-Origin': '*'
+      });
+      setCacheHeaders(imageHeaders, 'STATIC_IMAGES');
+      
+      const response = new Response(detectionResult.data.image_data, {
+        headers: imageHeaders
+      });
+
+      // Store in Workers cache (fire and forget)
+      if (shouldUseWorkersCache(imageId, 'image')) {
+        putInCache(request, response, 'image').catch(error => 
+          console.warn('Failed to cache blob image:', error)
+        );
+      }
+      
+      return response;
+    }
+    
+    // Proxy the image from Twitter CDN (for Twitter-sourced images)
+    if (detectionResult.data.image_url && !detectionResult.data.image_url.startsWith('blob_upload_')) {
       try {
         const imageResponse = await fetch(detectionResult.data.image_url, {
           headers: {
@@ -6562,8 +6569,31 @@ async function handleThumbnailRequest(request: Request, env: Env): Promise<Respo
       });
     }
     
-    // Use original image as thumbnail (proxy from Twitter CDN)
-    if (detectionResult.data.image_url) {
+    // Check if we have blob data for thumbnail (for API uploads)
+    if (detectionResult.data.image_data && detectionResult.data.image_content_type) {
+      console.log('Serving blob thumbnail for:', detectionId);
+      const thumbnailHeaders = new Headers({
+        'Content-Type': detectionResult.data.image_content_type,
+        'Access-Control-Allow-Origin': '*'
+      });
+      setCacheHeaders(thumbnailHeaders, 'STATIC_IMAGES');
+      
+      const response = new Response(detectionResult.data.image_data, {
+        headers: thumbnailHeaders
+      });
+
+      // Store in Workers cache (fire and forget)
+      if (shouldUseWorkersCache(detectionId, 'thumbnail')) {
+        putInCache(request, response, 'thumbnail').catch(error => 
+          console.warn('Failed to cache blob thumbnail:', error)
+        );
+      }
+      
+      return response;
+    }
+    
+    // Use original image as thumbnail (proxy from Twitter CDN for Twitter-sourced images)
+    if (detectionResult.data.image_url && !detectionResult.data.image_url.startsWith('blob_upload_')) {
       try {
         const imageResponse = await fetch(detectionResult.data.image_url, {
           headers: {
