@@ -297,6 +297,7 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
       
       // Generate a temporary pageId 
       tempPageId = await generateUniqueShortId(env);
+      console.log('🔧 DEBUG: Generated tempPageId:', tempPageId);
       if (!tempPageId) {
         throw new Error('Failed to generate temporary page ID for blob storage');
       }
@@ -316,22 +317,61 @@ async function handleExternalDetectionAPI(request: Request, env: Env): Promise<R
         imageContentType: imageContentType
       };
       
+      console.log('🔧 DEBUG: Inserting temporary detection with blob size:', imageData?.byteLength, 'bytes');
       const tempInsertResult = await insertDetection(env, tempDetectionData);
+      console.log('🔧 DEBUG: Temp insert result:', { success: tempInsertResult.success, pageId: tempInsertResult.pageId });
+      
       if (!tempInsertResult.success) {
         throw new Error('Failed to create temporary blob storage');
       }
       
-      // Create a URL that points to our worker's image endpoint
-      finalImageUrl = `https://truthscan.com/image/${tempPageId}`;
+      // Create a URL that points to our worker's image endpoint via assets route
+      finalImageUrl = `https://truthscan.com/assets/image/${tempPageId}`;
       console.log('✅ Created temporary image URL:', finalImageUrl);
+      
+      // Test if the image URL is accessible before proceeding
+      console.log('🔧 DEBUG: Testing image URL accessibility...');
+      try {
+        const testResponse = await fetch(finalImageUrl, { method: 'HEAD' });
+        console.log('🔧 DEBUG: Image URL test response:', { 
+          status: testResponse.status, 
+          ok: testResponse.ok,
+          contentType: testResponse.headers.get('content-type')
+        });
+        if (!testResponse.ok) {
+          console.error('❌ Image URL test failed - URL not accessible:', testResponse.status, testResponse.statusText);
+        }
+      } catch (testError) {
+        console.error('❌ Image URL test failed with error:', testError);
+      }
     }
     
     // Now process with the public URL (works for both URL and blob uploads)
     console.log('🔄 Processing image with AI detection using URL:', finalImageUrl);
+    console.log('🔧 DEBUG: About to call processImageWithAI with URL:', finalImageUrl);
+    
     const aiResult = await processImageWithAI(finalImageUrl, env);
     
+    console.log('🔧 DEBUG: AI processing result:', { 
+      success: aiResult.success, 
+      error: aiResult.error,
+      aiProbability: aiResult.aiProbability,
+      processingTimeMs: aiResult.processingTimeMs
+    });
+    
     if (!aiResult.success) {
-      console.error('AI processing failed:', aiResult.error);
+      console.error('❌ AI processing failed with error:', aiResult.error);
+      
+      // If this was a blob upload, clean up the temporary page
+      if (tempPageId) {
+        console.log('🧹 Cleaning up temporary page due to AI processing failure:', tempPageId);
+        try {
+          await env.DB.prepare('DELETE FROM detections WHERE page_id = ?').bind(tempPageId).run();
+        } catch (cleanupError) {
+          console.error('Failed to cleanup temporary page:', cleanupError);
+        }
+      }
+      
       const response = new Response(JSON.stringify({
         error: 'AI processing failed',
         message: aiResult.error || 'Unable to process image with AI detection'
@@ -2484,7 +2524,12 @@ export default {
           return handleExternalDetectionAPI(request, env);
           
         default:
-          // Handle image requests with pattern /images/:id
+          // Handle blob image requests with pattern /assets/image/:id (for API uploads)
+          if (url.pathname.startsWith('/assets/image/')) {
+            return handleImageRequest(request, env);
+          }
+          
+          // Handle image requests with pattern /images/:id (legacy)
           if (url.pathname.startsWith('/images/')) {
             return handleImageRequest(request, env);
           }
@@ -2494,8 +2539,8 @@ export default {
             return handleThumbnailRequest(request, env);
           }
           
-              // Handle detection page requests with pattern /d/:id
-    if (url.pathname.startsWith('/d/')) {
+          // Handle detection page requests with pattern /d/:id
+          if (url.pathname.startsWith('/d/')) {
             return handleDetectionPage(request, env);
           }
           
@@ -6508,7 +6553,14 @@ async function handleImageRequest(request: Request, env: Env): Promise<Response>
   try {
     const url = new URL(request.url);
     const pathSegments = url.pathname.split('/');
-    const imageId = pathSegments[2]; // /images/:id
+    
+    // Handle both /images/:id and /assets/image/:id patterns
+    let imageId: string;
+    if (url.pathname.startsWith('/assets/image/')) {
+      imageId = pathSegments[3]; // /assets/image/:id
+    } else {
+      imageId = pathSegments[2]; // /images/:id
+    }
     
     if (!imageId || imageId.length === 0) {
       return new Response('Image ID required', { 
