@@ -588,26 +588,19 @@ async function fetchTwitterAPI(
 ): Promise<Response> {
   let lastError: Error | null = null;
   
-  // Twitter's IPv4 addresses (from dig api.twitter.com A)
-  const TWITTER_IPV4_ADDRESSES = ['172.66.0.227', '162.159.140.229'];
-  
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       console.log(`Twitter API attempt ${attempt}/${retries}: ${options.method || 'GET'} ${url}`);
       
-      // IPv4 Force: Replace api.twitter.com with IPv4 address to bypass IPv6 issues
-      let finalUrl = url;
-      let isTwitterAPI = false;
+      // Keep original URL - direct IP access causes Cloudflare Error 1003
+      const finalUrl = url;
+      const isTwitterAPI = url.includes('api.twitter.com');
       
-      if (url.includes('api.twitter.com')) {
-        isTwitterAPI = true;
-        // Use the first IPv4 address by default, try second on later attempts
-        const ipv4Address = TWITTER_IPV4_ADDRESSES[attempt > 2 ? 1 : 0];
-        finalUrl = url.replace('api.twitter.com', ipv4Address);
-        console.log(`🔄 IPv4 workaround: ${url} → ${finalUrl}`);
+      if (isTwitterAPI) {
+        console.log(`🐦 Twitter API call: ${url}`);
       }
       
-      // Enhanced headers with IPv4 workaround
+      // Enhanced headers for Twitter API
       const enhancedOptions: RequestInit = {
         ...options,
         headers: {
@@ -615,35 +608,33 @@ async function fetchTwitterAPI(
           'User-Agent': 'Cloudflare-Workers/1.0 TruthScan-Bot/1.0',
           'Accept': 'application/json',
           'Cache-Control': 'no-cache',
-          'Connection': 'close',
-          // TEMPORARILY COMMENTED OUT: Host header might be causing OAuth issues
-          // ...(isTwitterAPI && { 'Host': 'api.twitter.com' })
+          'Connection': 'close'
         }
       };
       
       const response = await fetch(finalUrl, enhancedOptions);
       
-      // Check for the specific IPv6 error (should be rare now with IPv4 forcing)
+      // Check for specific Twitter errors
       if (response.status === 403) {
         const responseText = await response.text();
         if (responseText.trim() === 'IPv6') {
-          console.warn(`IPv6 connectivity error on attempt ${attempt} (unexpected with IPv4 workaround), retrying...`);
+          console.warn(`IPv6 connectivity error on attempt ${attempt}, retrying...`);
           if (attempt < retries) {
             // Wait longer between retries for infrastructure issues
             await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
             continue;
           }
         }
-        // If it's not the IPv6 error, return the response for normal error handling
+        // Return the response for normal error handling
         return new Response(responseText, { 
           status: response.status, 
           headers: response.headers 
         });
       }
       
-      // Success! Log the working approach
+      // Success! 
       if (isTwitterAPI && response.ok) {
-        console.log(`✅ IPv4 workaround successful: ${response.status} ${response.statusText}`);
+        console.log(`✅ Twitter API successful: ${response.status} ${response.statusText}`);
       }
       
       return response;
@@ -653,10 +644,6 @@ async function fetchTwitterAPI(
       lastError = error instanceof Error ? error : new Error(String(error));
       
       if (attempt < retries) {
-        // For Twitter API calls, try different IPv4 address on retry
-        if (url.includes('api.twitter.com')) {
-          console.log(`Retrying with different IPv4 address...`);
-        }
         // Exponential backoff
         await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
         continue;
