@@ -616,8 +616,8 @@ async function fetchTwitterAPI(
           'Accept': 'application/json',
           'Cache-Control': 'no-cache',
           'Connection': 'close',
-          // CRITICAL: Add Host header when using IPv4 address
-          ...(isTwitterAPI && { 'Host': 'api.twitter.com' })
+          // TEMPORARILY COMMENTED OUT: Host header might be causing OAuth issues
+          // ...(isTwitterAPI && { 'Host': 'api.twitter.com' })
         }
       };
       
