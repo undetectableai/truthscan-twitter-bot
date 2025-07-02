@@ -578,6 +578,96 @@ function recordTwitterRequest(): void {
 }
 
 /**
+ * Enhanced Twitter API fetch with IPv6 workaround and retry logic
+ */
+async function fetchTwitterAPI(
+  url: string,
+  options: RequestInit,
+  env: Env,
+  retries: number = 3
+): Promise<Response> {
+  let lastError: Error | null = null;
+  
+  // Twitter's IPv4 addresses (from dig api.twitter.com A)
+  const TWITTER_IPV4_ADDRESSES = ['172.66.0.227', '162.159.140.229'];
+  
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      console.log(`Twitter API attempt ${attempt}/${retries}: ${options.method || 'GET'} ${url}`);
+      
+      // IPv4 Force: Replace api.twitter.com with IPv4 address to bypass IPv6 issues
+      let finalUrl = url;
+      let isTwitterAPI = false;
+      
+      if (url.includes('api.twitter.com')) {
+        isTwitterAPI = true;
+        // Use the first IPv4 address by default, try second on later attempts
+        const ipv4Address = TWITTER_IPV4_ADDRESSES[attempt > 2 ? 1 : 0];
+        finalUrl = url.replace('api.twitter.com', ipv4Address);
+        console.log(`🔄 IPv4 workaround: ${url} → ${finalUrl}`);
+      }
+      
+      // Enhanced headers with IPv4 workaround
+      const enhancedOptions: RequestInit = {
+        ...options,
+        headers: {
+          ...options.headers,
+          'User-Agent': 'Cloudflare-Workers/1.0 TruthScan-Bot/1.0',
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache',
+          'Connection': 'close',
+          // CRITICAL: Add Host header when using IPv4 address
+          ...(isTwitterAPI && { 'Host': 'api.twitter.com' })
+        }
+      };
+      
+      const response = await fetch(finalUrl, enhancedOptions);
+      
+      // Check for the specific IPv6 error (should be rare now with IPv4 forcing)
+      if (response.status === 403) {
+        const responseText = await response.text();
+        if (responseText.trim() === 'IPv6') {
+          console.warn(`IPv6 connectivity error on attempt ${attempt} (unexpected with IPv4 workaround), retrying...`);
+          if (attempt < retries) {
+            // Wait longer between retries for infrastructure issues
+            await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+            continue;
+          }
+        }
+        // If it's not the IPv6 error, return the response for normal error handling
+        return new Response(responseText, { 
+          status: response.status, 
+          headers: response.headers 
+        });
+      }
+      
+      // Success! Log the working approach
+      if (isTwitterAPI && response.ok) {
+        console.log(`✅ IPv4 workaround successful: ${response.status} ${response.statusText}`);
+      }
+      
+      return response;
+      
+    } catch (error) {
+      console.error(`Twitter API attempt ${attempt} failed:`, error);
+      lastError = error instanceof Error ? error : new Error(String(error));
+      
+      if (attempt < retries) {
+        // For Twitter API calls, try different IPv4 address on retry
+        if (url.includes('api.twitter.com')) {
+          console.log(`Retrying with different IPv4 address...`);
+        }
+        // Exponential backoff
+        await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
+        continue;
+      }
+    }
+  }
+  
+  throw new Error(`Twitter API failed after ${retries} attempts. Last error: ${lastError?.message}`);
+}
+
+/**
  * Enhanced logging for Twitter API requests and responses
  * Captures detailed information for rate limit debugging
  */
@@ -1131,62 +1221,154 @@ async function pollTwitterMentionsIncremental(
     // Bot username from environment
     const botUsername = env.TWITTER_BOT_USERNAME || 'truth_scan';
     
-    // Search for recent mentions using direct API call
+    // Search for recent mentions using API call with fallback
     const searchQuery = `@${botUsername}`;
 
     recordTwitterRequest();
     
-    // Build Twitter API v2 search URL with parameters
-    const searchUrl = new URL('https://api.twitter.com/2/tweets/search/recent');
-    searchUrl.searchParams.set('query', searchQuery);
-    searchUrl.searchParams.set('tweet.fields', 'id,text,author_id,created_at,attachments,referenced_tweets,entities');
-    searchUrl.searchParams.set('user.fields', 'username');
-    searchUrl.searchParams.set('media.fields', 'url,preview_image_url,type');
-    searchUrl.searchParams.set('expansions', 'author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.attachments.media_keys,referenced_tweets.id.author_id');
-    searchUrl.searchParams.set('max_results', '10');
-    searchUrl.searchParams.set('sort_order', 'recency');
-    
-    // KEY OPTIMIZATION: Only fetch tweets newer than the last processed one
-    if (sinceId) {
-      searchUrl.searchParams.set('since_id', sinceId);
-      console.log(`Using since_id parameter: ${sinceId}`);
-    }
-
+    let response: Response;
+    let responseBody: string;
+    let searchResults: any;
     const startTime = Date.now();
-    const requestHeaders = {
-      'Authorization': `Bearer ${env.TWITTER_BEARER_TOKEN}`,
-      'Content-Type': 'application/json',
-    };
     
-    const response = await fetch(searchUrl.toString(), {
-      headers: requestHeaders
-    });
+    try {
+      // PRIMARY: Try Twitter API v2 first
+      console.log('Attempting Twitter API v2 search...');
+      const searchUrl = new URL('https://api.twitter.com/2/tweets/search/recent');
+      searchUrl.searchParams.set('query', searchQuery);
+      searchUrl.searchParams.set('tweet.fields', 'id,text,author_id,created_at,attachments,referenced_tweets,entities');
+      searchUrl.searchParams.set('user.fields', 'username');
+      searchUrl.searchParams.set('media.fields', 'url,preview_image_url,type');
+      searchUrl.searchParams.set('expansions', 'author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.attachments.media_keys,referenced_tweets.id.author_id');
+      searchUrl.searchParams.set('max_results', '10');
+      searchUrl.searchParams.set('sort_order', 'recency');
+      
+      if (sinceId) {
+        searchUrl.searchParams.set('since_id', sinceId);
+        console.log(`Using since_id parameter: ${sinceId}`);
+      }
 
-    const responseBody = await response.text();
-    
-    // Log the detailed API call for debugging
-    await logTwitterAPICall('GET', searchUrl.toString(), requestHeaders, null, response, responseBody, env, startTime);
+      const requestHeaders = {
+        'Authorization': `Bearer ${env.TWITTER_BEARER_TOKEN}`,
+        'Content-Type': 'application/json',
+      };
+      
+      response = await fetchTwitterAPI(searchUrl.toString(), {
+        headers: requestHeaders
+      }, env);
+      
+      responseBody = await response.text();
+      
+      if (response.ok) {
+        searchResults = JSON.parse(responseBody);
+      } else {
+        throw new Error(`API v2 failed: ${response.status} ${response.statusText} - ${responseBody}`);
+      }
+      
+    } catch (v2Error) {
+      console.warn('Twitter API v2 failed, falling back to v1.1:', v2Error);
+      
+      // FALLBACK: Use Twitter API v1.1 with OAuth 1.0a
+      try {
+        const searchParams: Record<string, string> = {
+          q: searchQuery,
+          count: '10',
+          result_type: 'recent'
+        };
+        
+        // Note: v1.1 doesn't support since_id in the same way, but we can filter client-side
+        
+        const v1Url = 'https://api.twitter.com/1.1/search/tweets.json';
+        const authHeader = await generateTwitterOAuthSignature('GET', v1Url, searchParams, env);
+        
+        const v1SearchUrl = new URL(v1Url);
+        Object.entries(searchParams).forEach(([key, value]) => {
+          v1SearchUrl.searchParams.set(key, value);
+        });
+        
+        response = await fetchTwitterAPI(v1SearchUrl.toString(), {
+          headers: { 'Authorization': authHeader }
+        }, env);
+        
+        responseBody = await response.text();
+        
+        if (!response.ok) {
+          throw new Error(`API v1.1 also failed: ${response.status} ${response.statusText} - ${responseBody}`);
+        }
+        
+        const v1Results = JSON.parse(responseBody);
+        
+        // Convert v1.1 format to v2 format for compatibility
+        searchResults = {
+          data: v1Results.statuses?.map((tweet: any) => ({
+            id: tweet.id_str,
+            text: tweet.text,
+            author_id: tweet.user.id_str,
+            created_at: tweet.created_at,
+            entities: tweet.entities,
+            attachments: tweet.entities?.media ? { media_keys: tweet.entities.media.map((m: any) => m.id_str) } : undefined
+          })) || [],
+          includes: {
+            users: v1Results.statuses?.map((tweet: any) => ({
+              id: tweet.user.id_str,
+              username: tweet.user.screen_name
+            })) || [],
+            media: v1Results.statuses?.flatMap((tweet: any) => 
+              tweet.entities?.media?.map((m: any) => ({
+                media_key: m.id_str,
+                type: m.type,
+                url: m.media_url_https
+              })) || []
+            ) || []
+          }
+        };
+        
+        console.log('✅ Successfully fell back to Twitter API v1.1');
+        
+      } catch (v1Error) {
+        // Try mentions endpoint as third alternative
+        console.warn('Both search APIs failed, trying mentions endpoint...', v1Error);
+        try {
+          // THIRD ALTERNATIVE: Use mentions endpoint (different infrastructure)
+          console.log('Attempting Twitter mentions endpoint as final fallback...');
+          
+          // Get bot user ID for mentions endpoint
+          const botUserId = await getBotUserId(botUsername, env);
+          const mentionsResult = await fetchTwitterMentionsAlternative(botUserId, sinceId, env);
+          
+          searchResults = mentionsResult;
+          console.log('✅ Successfully used Twitter mentions endpoint');
+          
+        } catch (mentionsError) {
+          // All three alternatives failed
+          throw new Error(`All Twitter API alternatives failed. v2: ${v2Error}. v1.1: ${v1Error}. Mentions: ${mentionsError}`);
+        }
+      }
+     }
+
+    // Log the detailed API call for debugging (using the last attempted URL)
+    const logUrl = response.url || 'Twitter API';
+    await logTwitterAPICall('GET', logUrl, {}, null, response, responseBody, env, startTime);
 
     if (!response.ok) {
       throw new Error(`Twitter API error: ${response.status} ${response.statusText} - ${responseBody}`);
     }
 
-    const searchResults: TwitterV2SearchResponse = JSON.parse(responseBody);
-
     console.log('Smart Twitter search completed:', {
-      resultCount: searchResults.data?.length || 0,
+      resultCount: (searchResults as TwitterV2SearchResponse).data?.length || 0,
       sinceId: sinceId || 'none',
       rateLimit: twitterRateLimit
     });
 
-    if (!searchResults.data || searchResults.data.length === 0) {
+    if (!(searchResults as TwitterV2SearchResponse).data || (searchResults as TwitterV2SearchResponse).data.length === 0) {
       console.log(sinceId ? 'No new mentions found since last check' : 'No recent mentions found');
       return { newTweetsCount: 0, highestTweetId: sinceId };
     }
 
-    // Find the highest tweet ID for the next incremental call
+        // Find the highest tweet ID for the next incremental call
     let highestTweetId = sinceId;
-    const tweetIds = searchResults.data.map(t => t.id);
+    const searchData = (searchResults as TwitterV2SearchResponse).data;
+    const tweetIds = searchData.map(t => t.id);
     
     // Twitter IDs are sortable as strings (they're snowflake IDs)
     if (tweetIds.length > 0) {
@@ -1196,8 +1378,8 @@ async function pollTwitterMentionsIncremental(
     // Process each found mention
     const backgroundTasks: Promise<void>[] = [];
     let newTweetsProcessed = 0;
-    
-    for (const tweet of searchResults.data) {
+
+    for (const tweet of searchData) {
       try {
         const tweetId = tweet.id;
         
@@ -1211,7 +1393,8 @@ async function pollTwitterMentionsIncremental(
         newTweetsProcessed++;
 
         // Get user info from includes
-        const author = searchResults.includes?.users?.find(
+        const searchIncludes = (searchResults as TwitterV2SearchResponse).includes;
+        const author = searchIncludes?.users?.find(
           user => user.id === tweet.author_id
         );
         const authorUsername = author?.username || 'unknown';
@@ -1228,7 +1411,7 @@ async function pollTwitterMentionsIncremental(
           const referencedTweetId = tweet.referenced_tweets?.find(ref => ref.type === 'replied_to')?.id;
           
           if (referencedTweetId) {
-            const originalTweet = searchResults.includes?.tweets?.find(
+            const originalTweet = searchIncludes?.tweets?.find(
               t => t.id === referencedTweetId
             );
             
@@ -1236,11 +1419,11 @@ async function pollTwitterMentionsIncremental(
               // Get the original tweet's author from the includes section
               console.log('DEBUG: Searching for original author:', {
                 originalTweetAuthorId: originalTweet.author_id,
-                availableUsers: searchResults.includes?.users?.map(u => ({ id: u.id, username: u.username })) || [],
-                totalUsersInIncludes: searchResults.includes?.users?.length || 0
+                availableUsers: searchIncludes?.users?.map(u => ({ id: u.id, username: u.username })) || [],
+                totalUsersInIncludes: searchIncludes?.users?.length || 0
               });
               
-              const originalAuthor = searchResults.includes?.users?.find(
+              const originalAuthor = searchIncludes?.users?.find(
                 user => user.id === originalTweet.author_id
               );
               if (originalAuthor) {
@@ -1263,7 +1446,7 @@ async function pollTwitterMentionsIncremental(
               
               // Add media entities from v2 media_keys
               if (originalTweet.attachments?.media_keys) {
-                const mediaObjects = searchResults.includes?.media?.filter(
+                const mediaObjects = searchIncludes?.media?.filter(
                   media => originalTweet.attachments!.media_keys.includes(media.media_key!)
                 ) || [];
                 
@@ -1303,7 +1486,7 @@ async function pollTwitterMentionsIncremental(
         } else {
           // Extract media info from the mention tweet itself (original behavior)
           const mediaKeys = tweet.attachments?.media_keys || [];
-          const mediaObjects = searchResults.includes?.media?.filter(
+          const mediaObjects = searchIncludes?.media?.filter(
             media => mediaKeys.includes(media.media_key!)
           ) || [];
           
@@ -1698,6 +1881,197 @@ async function handlePagePromotion(env: Env, ctx: ExecutionContext): Promise<voi
 /**
  * Test Undetectable AI API directly
  */
+async function handleTwitterIPv6FixTest(request: Request, env: Env): Promise<Response> {
+  try {
+    console.log('🧪 Testing Twitter API IPv6 fix...');
+    
+    const testResults: any = { 
+      timestamp: new Date().toISOString(),
+      tests: []
+    };
+    
+    // Test 1: Simple search with new fetchTwitterAPI function
+    try {
+      const searchUrl = new URL('https://api.twitter.com/2/tweets/search/recent');
+      searchUrl.searchParams.set('query', '@truth_scan');
+      searchUrl.searchParams.set('max_results', '5');
+      
+      const startTime = Date.now();
+      const response = await fetchTwitterAPI(searchUrl.toString(), {
+        headers: {
+          'Authorization': `Bearer ${env.TWITTER_BEARER_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      }, env);
+      
+      const processingTime = Date.now() - startTime;
+      const responseText = await response.text();
+      
+      testResults.tests.push({
+        name: 'twitter_api_v2_search_with_ipv6_fix',
+        success: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        processingTimeMs: processingTime,
+        responsePreview: response.ok ? 
+          (responseText.length > 500 ? responseText.substring(0, 500) + '...' : responseText) : 
+          responseText,
+        isIPv6Error: responseText.trim() === 'IPv6'
+      });
+      
+    } catch (error) {
+      testResults.tests.push({
+        name: 'twitter_api_v2_search_with_ipv6_fix',
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+    
+    // Test 2: Direct fetch without our wrapper (for comparison)
+    try {
+      const searchUrl = new URL('https://api.twitter.com/2/tweets/search/recent');
+      searchUrl.searchParams.set('query', '@truth_scan');
+      searchUrl.searchParams.set('max_results', '5');
+      
+      const startTime = Date.now();
+      const response = await fetch(searchUrl.toString(), {
+        headers: {
+          'Authorization': `Bearer ${env.TWITTER_BEARER_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const processingTime = Date.now() - startTime;
+      const responseText = await response.text();
+      
+      testResults.tests.push({
+        name: 'twitter_api_v2_search_direct_fetch',
+        success: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        processingTimeMs: processingTime,
+        responsePreview: response.ok ? 
+          (responseText.length > 500 ? responseText.substring(0, 500) + '...' : responseText) : 
+          responseText,
+        isIPv6Error: responseText.trim() === 'IPv6'
+      });
+      
+    } catch (error) {
+      testResults.tests.push({
+        name: 'twitter_api_v2_search_direct_fetch',
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+
+    return new Response(JSON.stringify(testResults, null, 2), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+  } catch (error) {
+    console.error('❌ Twitter IPv6 fix test failed:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+async function handleTwitterMentionsTest(request: Request, env: Env): Promise<Response> {
+  try {
+    console.log('🧪 Testing Twitter Mentions API specifically...');
+    
+    const testResults: any = { 
+      timestamp: new Date().toISOString(),
+      tests: []
+    };
+    
+    // Test 1: Get bot user ID
+    try {
+      const botUsername = env.TWITTER_BOT_USERNAME || 'truth_scan';
+      console.log(`Getting user ID for bot: ${botUsername}`);
+      
+      const startTime = Date.now();
+      const botUserId = await getBotUserId(botUsername, env);
+      const processingTime = Date.now() - startTime;
+      
+      testResults.tests.push({
+        name: 'get_bot_user_id',
+        success: true,
+        processingTimeMs: processingTime,
+        botUserId: botUserId,
+        botUsername: botUsername
+      });
+      
+      // Test 2: Fetch mentions using the new endpoint
+      try {
+        console.log(`Fetching mentions for user ID: ${botUserId}`);
+        
+        const mentionsStartTime = Date.now();
+        const mentionsResult = await fetchTwitterMentionsAlternative(botUserId, null, env);
+        const mentionsProcessingTime = Date.now() - mentionsStartTime;
+        
+        testResults.tests.push({
+          name: 'fetch_mentions_endpoint',
+          success: true,
+          processingTimeMs: mentionsProcessingTime,
+          mentionsCount: mentionsResult.data?.length || 0,
+          includesUsers: mentionsResult.includes?.users?.length || 0,
+          includesMedia: mentionsResult.includes?.media?.length || 0,
+          mentionsPreview: mentionsResult.data?.slice(0, 2).map(tweet => ({
+            id: tweet.id,
+            author_id: tweet.author_id,
+            text: tweet.text?.substring(0, 100) + '...'
+          })) || []
+        });
+        
+        console.log('✅ Mentions API test successful!');
+        
+      } catch (mentionsError) {
+        console.error('❌ Mentions API test failed:', mentionsError);
+        testResults.tests.push({
+          name: 'fetch_mentions_endpoint',
+          success: false,
+          error: mentionsError instanceof Error ? mentionsError.message : String(mentionsError),
+          isIPv6Error: mentionsError instanceof Error && mentionsError.message.includes('IPv6')
+        });
+      }
+      
+    } catch (userIdError) {
+      console.error('❌ Bot user ID lookup failed:', userIdError);
+      testResults.tests.push({
+        name: 'get_bot_user_id',
+        success: false,
+        error: userIdError instanceof Error ? userIdError.message : String(userIdError),
+        isIPv6Error: userIdError instanceof Error && userIdError.message.includes('IPv6')
+      });
+    }
+    
+    const overallSuccess = testResults.tests.every((test: any) => test.success);
+    
+    return new Response(JSON.stringify(testResults), {
+      status: overallSuccess ? 200 : 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+  } catch (error) {
+    console.error('❌ Twitter mentions test failed:', error);
+    return new Response(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      error: 'Test failed',
+      details: error instanceof Error ? error.message : String(error)
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
 async function handleUndetectableAITest(request: Request, env: Env): Promise<Response> {
   try {
     const authResult = requireBasicAuth(request, env);
@@ -1857,10 +2231,10 @@ async function handleTwitterDebug(request: Request, env: Env): Promise<Response>
       const authHeader = await generateTwitterOAuthSignature('GET', url, {}, env);
       const startTime = Date.now();
       
-      const response = await fetch(url, {
+      const response = await fetchTwitterAPI(url, {
         method: 'GET',
         headers: { 'Authorization': authHeader }
-      });
+      }, env);
       
       const responseBody = await response.text();
       const processingTime = Date.now() - startTime;
@@ -1892,10 +2266,10 @@ async function handleTwitterDebug(request: Request, env: Env): Promise<Response>
       const authHeader = await generateTwitterOAuthSignature('GET', url, {}, env);
       const startTime = Date.now();
       
-      const response = await fetch(url, {
+      const response = await fetchTwitterAPI(url, {
         method: 'GET',
         headers: { 'Authorization': authHeader }
-      });
+      }, env);
       
       const responseBody = await response.text();
       const processingTime = Date.now() - startTime;
@@ -2423,6 +2797,12 @@ export default {
 
         case '/api/debug/twitter-status':
           return await handleTwitterDebug(request, env);
+          
+        case '/api/test/twitter-ipv6-fix':
+          return await handleTwitterIPv6FixTest(request, env);
+          
+        case '/api/test/twitter-mentions':
+          return await handleTwitterMentionsTest(request, env);
 
         case '/api/test/undetectable-ai':
           return await handleUndetectableAITest(request, env);
@@ -4815,11 +5195,11 @@ async function replyToTweet(
       'Content-Type': 'application/json',
     };
     
-    const response = await fetch(url, {
+    const response = await fetchTwitterAPI(url, {
       method: 'POST',
       headers: requestHeaders,
       body: JSON.stringify(tweetData)
-    });
+    }, env);
     
     const responseBody = await response.text();
     
@@ -4895,7 +5275,7 @@ async function likeTweet(
     // Get the bot's user ID - we need this for the API endpoint
     // For now, we'll use a hardcoded approach since we know it's the bot's account
     // In a production system, you might want to fetch this dynamically
-    const botUserId = await getBotUserId(env);
+    const botUserId = await getBotUserIdOAuth(env);
     
     if (!botUserId) {
       throw new Error('Unable to determine bot user ID');
@@ -4917,11 +5297,11 @@ async function likeTweet(
       'Content-Type': 'application/json',
     };
     
-    const response = await fetch(url, {
+    const response = await fetchTwitterAPI(url, {
       method: 'POST',
       headers: requestHeaders,
       body: JSON.stringify(likeData)
-    });
+    }, env);
     
     const responseBody = await response.text();
     
@@ -4970,10 +5350,108 @@ async function likeTweet(
 }
 
 /**
- * Get the bot's user ID for API requests
+ * Alternative Twitter API implementation using user mentions endpoint
+ * This avoids the IPv6 connectivity issues with search endpoints
+ */
+async function fetchTwitterMentionsAlternative(
+  botUserId: string,
+  sinceId: string | null,
+  env: Env
+): Promise<{
+  data: any[];
+  includes?: any;
+  meta?: any;
+}> {
+  console.log('Using Twitter mentions endpoint as search alternative...');
+  
+  // Build Twitter API v2 mentions URL
+  const mentionsUrl = new URL(`https://api.twitter.com/2/users/${botUserId}/mentions`);
+  mentionsUrl.searchParams.set('tweet.fields', 'id,text,author_id,created_at,attachments,referenced_tweets,entities');
+  mentionsUrl.searchParams.set('user.fields', 'username');
+  mentionsUrl.searchParams.set('media.fields', 'url,preview_image_url,type');
+  mentionsUrl.searchParams.set('expansions', 'author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.attachments.media_keys,referenced_tweets.id.author_id');
+  mentionsUrl.searchParams.set('max_results', '100'); // Mentions endpoint allows up to 100
+  
+  if (sinceId) {
+    mentionsUrl.searchParams.set('since_id', sinceId);
+    console.log(`Using since_id parameter for mentions: ${sinceId}`);
+  }
+
+  const requestHeaders = {
+    'Authorization': `Bearer ${env.TWITTER_BEARER_TOKEN}`,
+    'Content-Type': 'application/json'
+  };
+
+  const startTime = Date.now();
+  let responseBody = '';
+
+  try {
+    const response = await fetchTwitterAPI(mentionsUrl.toString(), {
+      headers: requestHeaders
+    }, env);
+
+    responseBody = await response.text();
+    
+    // Log the detailed API call
+    await logTwitterAPICall('GET', mentionsUrl.toString(), requestHeaders, null, response, responseBody, env, startTime);
+
+    if (!response.ok) {
+      throw new Error(`Twitter mentions API error: ${response.status} ${response.statusText} - ${responseBody}`);
+    }
+
+    const mentionsResult = JSON.parse(responseBody);
+    console.log('Twitter mentions API success:', {
+      mentionsCount: mentionsResult.data?.length || 0,
+      sinceId: sinceId || 'none',
+      endpoint: 'mentions'
+    });
+
+    return mentionsResult;
+
+  } catch (error) {
+    console.error('Twitter mentions API failed:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get the bot's user ID for mentions endpoint
+ * Enhanced to accept bot username and cache the result
+ */
+let cachedBotUserId: string | null = null;
+
+async function getBotUserId(botUsername: string, env: Env): Promise<string> {
+  if (cachedBotUserId) {
+    return cachedBotUserId;
+  }
+
+  console.log(`Getting user ID for bot: ${botUsername}`);
+  
+  const userUrl = `https://api.twitter.com/2/users/by/username/${botUsername}`;
+  const response = await fetchTwitterAPI(userUrl, {
+    headers: {
+      'Authorization': `Bearer ${env.TWITTER_BEARER_TOKEN}`,
+      'Content-Type': 'application/json'
+    }
+  }, env);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to get bot user ID: ${response.status} ${response.statusText} - ${errorText}`);
+  }
+
+  const userData = await response.json();
+  cachedBotUserId = userData.data.id;
+  
+  console.log(`Bot user ID cached: ${cachedBotUserId} for @${botUsername}`);
+  return cachedBotUserId;
+}
+
+/**
+ * Get the bot's user ID for API requests (original function for OAuth)
  * This could be cached or stored in environment variables for efficiency
  */
-async function getBotUserId(env: Env): Promise<string | null> {
+async function getBotUserIdOAuth(env: Env): Promise<string | null> {
   try {
     // Use the verify_credentials endpoint to get our own user info
     const url = 'https://api.twitter.com/1.1/account/verify_credentials.json';
@@ -4983,10 +5461,10 @@ async function getBotUserId(env: Env): Promise<string | null> {
       'Authorization': authHeader,
     };
     
-    const response = await fetch(url, {
+    const response = await fetchTwitterAPI(url, {
       method: 'GET',
       headers: requestHeaders
-    });
+    }, env);
     
     const responseBody = await response.text();
     
