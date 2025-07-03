@@ -592,12 +592,17 @@ async function fetchTwitterAPI(
     try {
       console.log(`Twitter API attempt ${attempt}/${retries}: ${options.method || 'GET'} ${url}`);
       
-      // Keep original URL - direct IP access causes Cloudflare Error 1003
-      const finalUrl = url;
+      // Use DigitalOcean proxy for Twitter API calls to solve IPv6 connectivity issues
+      let finalUrl = url;
       const isTwitterAPI = url.includes('api.twitter.com');
       
       if (isTwitterAPI) {
-        console.log(`🐦 Twitter API call: ${url}`);
+        // Replace api.twitter.com with our DigitalOcean proxy
+        const proxyBaseUrl = 'https://twitter-api-proxy-wlgww.ondigitalocean.app';
+        const apiPath = url.replace('https://api.twitter.com', '');
+        finalUrl = `${proxyBaseUrl}/twitter-api${apiPath}`;
+        console.log(`🐦 Twitter API call via proxy: ${finalUrl}`);
+        console.log(`🔄 Original URL: ${url}`);
       }
       
       // Enhanced headers for Twitter API
@@ -634,7 +639,7 @@ async function fetchTwitterAPI(
       
       // Success! 
       if (isTwitterAPI && response.ok) {
-        console.log(`✅ Twitter API successful: ${response.status} ${response.statusText}`);
+        console.log(`✅ Twitter API successful via proxy: ${response.status} ${response.statusText}`);
       }
       
       return response;
@@ -5205,7 +5210,7 @@ async function replyToTweet(
     });
 
     // After successful reply, attempt to like the original tweet
-    // Use background promise so it doesn't block the response
+    // Use background promise so it doesn't block the reply success
     const likePromise = likeTweet(originalTweetId, env).catch(error => {
       // Log the error but don't let it affect the reply success
       console.warn('Failed to like original tweet (graceful degradation):', {
