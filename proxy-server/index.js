@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const fetch = require('node-fetch');
+const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -39,21 +39,27 @@ app.all('/twitter-api/*', async (req, res) => {
       }
     });
 
-    // Make the request to Twitter API
-    const response = await fetch(url.toString(), {
-      method: req.method,
+    // Prepare axios config
+    const axiosConfig = {
+      method: req.method.toLowerCase(),
+      url: url.toString(),
       headers: headers,
-      body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined,
-      // Force IPv4 by using the family option
-      family: 4
-    });
+      validateStatus: () => true, // Don't throw errors for HTTP error status codes
+      timeout: 30000, // 30 second timeout
+    };
+
+    // Add body for non-GET requests
+    if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
+      axiosConfig.data = req.body;
+    }
+
+    // Make the request to Twitter API
+    const response = await axios(axiosConfig);
 
     // Forward response headers
-    Object.keys(response.headers.raw()).forEach(key => {
-      const value = response.headers.raw()[key];
-      if (Array.isArray(value)) {
-        value.forEach(val => res.setHeader(key, val));
-      } else {
+    Object.keys(response.headers).forEach(key => {
+      const value = response.headers[key];
+      if (value !== undefined) {
         res.setHeader(key, value);
       }
     });
@@ -62,8 +68,7 @@ app.all('/twitter-api/*', async (req, res) => {
     res.status(response.status);
 
     // Forward response body
-    const responseText = await response.text();
-    res.send(responseText);
+    res.send(response.data);
 
   } catch (error) {
     console.error('Proxy error:', error);
