@@ -1218,8 +1218,8 @@ async function pollTwitterMentionsIncremental(
 
     recordTwitterRequest();
     
-    let response: Response;
-    let responseBody: string;
+    let response: Response | undefined;
+    let responseBody: string = '';
     let searchResults: any;
     const startTime = Date.now();
     
@@ -1329,6 +1329,11 @@ async function pollTwitterMentionsIncremental(
           const mentionsResult = await fetchTwitterMentionsAlternative(botUserId, sinceId, env);
           
           searchResults = mentionsResult;
+          
+          // Create a dummy response for logging since mentions endpoint doesn't return one
+          response = new Response(JSON.stringify(mentionsResult), { status: 200 });
+          responseBody = JSON.stringify(mentionsResult);
+          
           console.log('✅ Successfully used Twitter mentions endpoint');
           
         } catch (mentionsError) {
@@ -1339,11 +1344,13 @@ async function pollTwitterMentionsIncremental(
      }
 
     // Log the detailed API call for debugging (using the last attempted URL)
-    const logUrl = response.url || 'Twitter API';
-    await logTwitterAPICall('GET', logUrl, {}, null, response, responseBody, env, startTime);
+    if (response) {
+      const logUrl = response.url || 'Twitter API';
+      await logTwitterAPICall('GET', logUrl, {}, null, response, responseBody, env, startTime);
 
-    if (!response.ok) {
-      throw new Error(`Twitter API error: ${response.status} ${response.statusText} - ${responseBody}`);
+      if (!response.ok) {
+        throw new Error(`Twitter API error: ${response.status} ${response.statusText} - ${responseBody}`);
+      }
     }
 
     console.log('Smart Twitter search completed:', {
@@ -1352,14 +1359,18 @@ async function pollTwitterMentionsIncremental(
       rateLimit: twitterRateLimit
     });
 
-    if (!(searchResults as TwitterV2SearchResponse).data || (searchResults as TwitterV2SearchResponse).data.length === 0) {
+    const searchResponse = (searchResults as TwitterV2SearchResponse);
+    if (!searchResponse.data || searchResponse.data.length === 0) {
       console.log(sinceId ? 'No new mentions found since last check' : 'No recent mentions found');
       return { newTweetsCount: 0, highestTweetId: sinceId };
     }
 
         // Find the highest tweet ID for the next incremental call
     let highestTweetId = sinceId;
-    const searchData = (searchResults as TwitterV2SearchResponse).data;
+    const searchData = searchResponse.data;
+    if (!searchData) {
+      return { newTweetsCount: 0, highestTweetId: sinceId };
+    }
     const tweetIds = searchData.map(t => t.id);
     
     // Twitter IDs are sortable as strings (they're snowflake IDs)
@@ -1385,7 +1396,7 @@ async function pollTwitterMentionsIncremental(
         newTweetsProcessed++;
 
         // Get user info from includes
-        const searchIncludes = (searchResults as TwitterV2SearchResponse).includes;
+        const searchIncludes = searchResponse.includes;
         const author = searchIncludes?.users?.find(
           user => user.id === tweet.author_id
         );
@@ -4569,7 +4580,7 @@ async function analyzeImageWithGroqCombined(imageUrl: string, env: Env, aiDetect
   const startTime = Date.now();
   
   // Declare timeout variables outside try block for proper scope
-  let timeoutId: NodeJS.Timeout | undefined;
+  let timeoutId: number | undefined;
   let timeoutCleared = false;
   
   try {
@@ -5513,7 +5524,7 @@ async function getBotUserId(botUsername: string, env: Env): Promise<string> {
     throw new Error(`Failed to get bot user ID: ${response.status} ${response.statusText} - ${errorText}`);
   }
 
-  const userData = await response.json();
+  const userData = await response.json() as { data: { id: string } };
   cachedBotUserId = userData.data.id;
   
   console.log(`Bot user ID cached: ${cachedBotUserId} for @${botUsername}`);
