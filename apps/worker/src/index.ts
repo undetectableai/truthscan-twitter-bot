@@ -4378,11 +4378,54 @@ async function processImageWithAIFromBlob(
     
     try {
       // Convert processed ArrayBuffer to base64 data URL for Groq
-      const base64String = btoa(String.fromCharCode(...new Uint8Array(processedImageData)));
+      console.log('🔧 DEBUG: Converting ArrayBuffer to base64 data URL...');
+      console.log('🔧 DEBUG: Image data size:', processedImageData.byteLength, 'bytes');
+      console.log('🔧 DEBUG: Content type:', processedContentType);
+      
+      // Check if image is too large for base64 conversion (potential memory issue)
+      const maxBase64Size = 5 * 1024 * 1024; // 5MB limit for base64
+      if (processedImageData.byteLength > maxBase64Size) {
+        console.warn('⚠️ WARNING: Image too large for base64 conversion, skipping Groq analysis');
+        throw new Error(`Image too large for Groq analysis: ${Math.round(processedImageData.byteLength / 1024 / 1024)}MB > 5MB limit`);
+      }
+      
+      // Try different base64 conversion approaches for better compatibility
+      let base64String: string;
+      try {
+        // Method 1: Direct conversion (fastest but can fail on large images)
+        base64String = btoa(String.fromCharCode(...new Uint8Array(processedImageData)));
+      } catch (base64Error) {
+        console.warn('⚠️ Direct base64 conversion failed, trying chunked approach:', base64Error);
+        // Method 2: Chunked conversion for large images
+        const chunk = 8192;
+        const uint8Array = new Uint8Array(processedImageData);
+        let result = '';
+        for (let i = 0; i < uint8Array.length; i += chunk) {
+          const slice = uint8Array.slice(i, i + chunk);
+          result += String.fromCharCode(...slice);
+        }
+        base64String = btoa(result);
+      }
+      
       const dataUrl = `data:${processedContentType};base64,${base64String}`;
       
+      console.log('🔧 DEBUG: Base64 data URL created:', {
+        dataUrlLength: dataUrl.length,
+        dataUrlPreview: dataUrl.substring(0, 100) + '...',
+        estimatedSizeMB: Math.round(dataUrl.length / 1024 / 1024 * 100) / 100
+      });
+      
       // Run Groq analysis with AI detection score
+      console.log('🔧 DEBUG: Calling analyzeImageWithGroqCombined with data URL...');
       const groqResult = await analyzeImageWithGroqCombined(dataUrl, env, result);
+      
+      console.log('🔧 DEBUG: Groq analysis completed:', {
+        success: groqResult.success,
+        error: groqResult.error,
+        titleLength: groqResult.title?.length,
+        metaLength: groqResult.metaDescription?.length,
+        processingTime: groqResult.processingTimeMs
+      });
       
       if (groqResult.success) {
         console.log('✅ Groq analysis completed for blob:', {
@@ -4424,7 +4467,11 @@ async function processImageWithAIFromBlob(
         };
       }
     } catch (groqError) {
-      console.error('❌ Groq analysis error for blob:', groqError);
+      console.error('❌ Groq analysis error for blob:', {
+        error: groqError instanceof Error ? groqError.message : String(groqError),
+        imageSize: processedImageData.byteLength,
+        contentType: processedContentType
+      });
       // Continue without Groq analysis
       return {
         success: true,
@@ -4521,8 +4568,18 @@ interface GroqCombinedAnalysisResult {
 async function analyzeImageWithGroqCombined(imageUrl: string, env: Env, aiDetectionScore?: number, tweetText?: string, hashtags?: string[]): Promise<GroqCombinedAnalysisResult> {
   const startTime = Date.now();
   
+  // Declare timeout variables outside try block for proper scope
+  let timeoutId: NodeJS.Timeout | undefined;
+  let timeoutCleared = false;
+  
   try {
-    console.log('Starting combined Groq image analysis for:', imageUrl);
+    console.log('Starting combined Groq image analysis for:', {
+      imageUrlType: imageUrl.startsWith('data:') ? 'base64_data_url' : 'regular_url',
+      imageUrlLength: imageUrl.length,
+      aiDetectionScore,
+      hasTweetText: !!tweetText,
+      hashtagsCount: hashtags?.length || 0
+    });
     
     if (!env.GROQ_API_KEY) {
       throw new Error('GROQ_API_KEY not configured');
@@ -4537,12 +4594,17 @@ async function analyzeImageWithGroqCombined(imageUrl: string, env: Env, aiDetect
     }
     const contextString = contextInfo.length > 0 ? `\n\nContext:\n${contextInfo.join('\n')}` : '';
 
+    // Add timeout to prevent hanging requests
+    const controller = new AbortController();
+    timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+    
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${env.GROQ_API_KEY}`,
         'Content-Type': 'application/json',
       },
+      signal: controller.signal,
       body: JSON.stringify({
         model: 'meta-llama/llama-4-scout-17b-16e-instruct',
         messages: [
@@ -4601,8 +4663,22 @@ Do not include any other text or formatting.${contextString}`
       })
     });
 
+    // Clear timeout since request completed
+    if (!timeoutCleared && timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutCleared = true;
+    }
+    
     if (!response.ok) {
       const errorText = await response.text();
+      console.error('❌ Groq API HTTP Error:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText: errorText.substring(0, 500),
+        imageUrlType: imageUrl.startsWith('data:') ? 'base64_data_url' : 'regular_url',
+        imageUrlLength: imageUrl.length,
+        aiDetectionScore
+      });
       throw new Error(`Groq API error ${response.status}: ${errorText}`);
     }
 
@@ -4658,6 +4734,11 @@ Do not include any other text or formatting.${contextString}`
 
   } catch (error) {
     const processingTime = Date.now() - startTime;
+    // Clear timeout in case of error  
+    if (!timeoutCleared && timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutCleared = true;
+    }
     console.error('Combined Groq analysis failed:', error);
     
     // Log API error for monitoring
