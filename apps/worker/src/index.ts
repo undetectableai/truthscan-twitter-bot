@@ -1309,7 +1309,8 @@ async function pollTwitterMentionsIncremental(
               tweet.entities?.media?.map((m: any) => ({
                 media_key: m.id_str,
                 type: m.type,
-                url: m.media_url_https
+                url: m.media_url_https,
+                preview_image_url: m.type === 'video' || m.type === 'animated_gif' ? m.media_url_https : undefined // Use media URL as preview for videos in v1.1
               })) || []
             ) || []
           }
@@ -1453,13 +1454,38 @@ async function pollTwitterMentionsIncremental(
                   media => originalTweet.attachments!.media_keys.includes(media.media_key!)
                 ) || [];
                 
-                const mediaEntities = mediaObjects
-                  .filter(media => media.type === 'photo')
-                  .map(media => ({
-                    id: 0, // Placeholder
-                    media_url_https: media.url!,
-                    type: 'photo'
-                  }));
+                // Process both photos and videos for Twitter API v2 compatibility
+                const mediaEntities: any[] = [];
+                
+                for (const media of mediaObjects) {
+                  if (media.type === 'photo') {
+                    // For photos, use the direct media URL
+                    mediaEntities.push({
+                      id: 0, // Placeholder
+                      media_url_https: media.url!,
+                      type: 'photo'
+                    });
+                  } else if (media.type === 'video' || media.type === 'animated_gif') {
+                    // For videos and GIFs, use the preview/thumbnail image
+                    if (media.preview_image_url) {
+                      mediaEntities.push({
+                        id: 0, // Placeholder
+                        media_url_https: media.preview_image_url,
+                        type: 'photo', // Treat video thumbnails as photos for processing
+                        preview_image_url: media.preview_image_url
+                      });
+                      console.log(`📹 Added video thumbnail to extraction: ${media.preview_image_url}`);
+                    } else if (media.url) {
+                      // Fallback for videos without explicit preview_image_url
+                      mediaEntities.push({
+                        id: 0, // Placeholder
+                        media_url_https: media.url,
+                        type: 'photo', // Treat as photo for processing
+                      });
+                      console.log(`📹 Added video fallback URL to extraction: ${media.url}`);
+                    }
+                  }
+                }
                 
                 webhookFormatTweet.entities!.media = mediaEntities;
                 webhookFormatTweet.extended_entities!.media = mediaEntities;
@@ -1493,10 +1519,27 @@ async function pollTwitterMentionsIncremental(
             media => mediaKeys.includes(media.media_key!)
           ) || [];
           
-          imageUrls = mediaObjects
-            .filter(media => media.type === 'photo')
-            .map(media => media.url!)
-            .filter(url => url);
+          // Process both photos and videos for direct mentions
+          imageUrls = [];
+          
+          for (const media of mediaObjects) {
+            if (media.type === 'photo') {
+              // For photos, use the direct media URL
+              if (media.url) {
+                imageUrls.push(media.url);
+              }
+            } else if (media.type === 'video' || media.type === 'animated_gif') {
+              // For videos and GIFs, use the preview/thumbnail image
+              if (media.preview_image_url) {
+                imageUrls.push(media.preview_image_url);
+                console.log(`📹 Added video thumbnail from direct mention: ${media.preview_image_url}`);
+              } else if (media.url) {
+                // Fallback for videos without explicit preview_image_url
+                imageUrls.push(media.url);
+                console.log(`📹 Added video fallback URL from direct mention: ${media.url}`);
+              }
+            }
+          }
             
           // For direct mentions, extract hashtags from the mention tweet
           const hashtagMatches = sourceText.match(/#\w+/g) || [];
@@ -3040,6 +3083,7 @@ interface TwitterMedia {
   id: number;
   media_url_https: string;
   type: string;
+  preview_image_url?: string; // For video thumbnails
 }
 
 interface ParsedTweetData {
@@ -3100,6 +3144,7 @@ interface TwitterV2SearchResponse {
       media_key: string;
       type: string;
       url?: string;
+      preview_image_url?: string; // For video thumbnails
     }>;
     tweets?: Array<{
       id: string;
@@ -3380,7 +3425,7 @@ function convertV2ToWebhookFormat(v2Tweet: any): TwitterTweet {
 }
 
 /**
- * Extract image URLs from Twitter media entities
+ * Extract image URLs from Twitter media entities (photos and video thumbnails)
  */
 function extractImageUrls(tweet: TwitterTweet): string[] {
   try {
@@ -3393,26 +3438,54 @@ function extractImageUrls(tweet: TwitterTweet): string[] {
       hasEntitiesMedia: !!tweet.entities?.media,
       extendedMediaCount: extendedMedia.length,
       entitiesMediaCount: entitiesMedia.length,
-      extendedMedia: extendedMedia.map(m => ({ id: m.id, type: m.type, url: m.media_url_https })),
-      entitiesMedia: entitiesMedia.map(m => ({ id: m.id, type: m.type, url: m.media_url_https }))
+      extendedMedia: extendedMedia.map(m => ({ 
+        id: m.id, 
+        type: m.type, 
+        url: m.media_url_https,
+        preview_url: m.preview_image_url 
+      })),
+      entitiesMedia: entitiesMedia.map(m => ({ 
+        id: m.id, 
+        type: m.type, 
+        url: m.media_url_https,
+        preview_url: m.preview_image_url 
+      }))
     });
     
     // Prefer extended_entities.media over entities.media for complete media info
     const mediaEntities = extendedMedia.length > 0 ? extendedMedia : entitiesMedia;
     
-    // Filter for photo type media and extract HTTPS URLs
-    const imageUrls = mediaEntities
-      .filter(media => media.type === 'photo')
-      .map(media => media.media_url_https)
-      .filter(url => url); // Remove any undefined/null URLs
+    // Process both photos and videos to get analyzable images
+    const imageUrls: string[] = [];
+    
+    for (const media of mediaEntities) {
+      if (media.type === 'photo') {
+        // For photos, use the direct media URL
+        if (media.media_url_https) {
+          imageUrls.push(media.media_url_https);
+        }
+      } else if (media.type === 'video' || media.type === 'animated_gif') {
+        // For videos and GIFs, use the preview/thumbnail image
+        if (media.preview_image_url) {
+          imageUrls.push(media.preview_image_url);
+          console.log(`📹 Using video thumbnail: ${media.preview_image_url}`);
+        } else if (media.media_url_https) {
+          // Fallback: some video entries might still have media_url_https as thumbnail
+          imageUrls.push(media.media_url_https);
+          console.log(`📹 Using video fallback URL: ${media.media_url_https}`);
+        }
+      }
+    }
     
     // Deduplicate URLs (in case of Twitter API quirks)
     const uniqueImageUrls = [...new Set(imageUrls)];
     
     console.log('📸 EXTRACTED MEDIA RESULTS:', {
       totalMediaEntities: mediaEntities.length,
-      photoEntities: imageUrls.length,
-      uniquePhotoEntities: uniqueImageUrls.length,
+      photoEntities: mediaEntities.filter(m => m.type === 'photo').length,
+      videoEntities: mediaEntities.filter(m => m.type === 'video' || m.type === 'animated_gif').length,
+      totalExtractedUrls: imageUrls.length,
+      uniqueUrls: uniqueImageUrls.length,
       mediaTypes: mediaEntities.map(m => m.type),
       allImageUrls: imageUrls,
       uniqueImageUrls: uniqueImageUrls,
@@ -3671,7 +3744,7 @@ function resolveUrl(url: string, baseUrl: string): string | null {
 }
 
 /**
- * Enhanced image URL extraction that prioritizes direct media, falls back to Open Graph
+ * Enhanced image URL extraction that prioritizes direct media (photos and video thumbnails), falls back to Open Graph
  */
 async function extractAllImageUrls(tweet: TwitterTweet): Promise<string[]> {
   try {

@@ -24,7 +24,8 @@ For complete security setup including:
 ## 📊 Features
 
 - **Twitter Webhook Handler**: Responds to Twitter CRC challenges and processes incoming tweet events
-- **AI Image Detection**: Integrates with Undetectable.AI for real-time image analysis
+- **AI Image Detection**: Integrates with Undetectable.AI for real-time image analysis of photos and video thumbnails
+- **Video Thumbnail Support**: Automatically extracts and analyzes thumbnails from Twitter videos and animated GIFs
 - **Database Storage**: Stores detection results in Cloudflare D1 for dashboard analytics
 - **Automated Replies**: Posts AI detection results back to Twitter automatically
 - **Dashboard API**: Provides data endpoints for the React dashboard (optionally protected)
