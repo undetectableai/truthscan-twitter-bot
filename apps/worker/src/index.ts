@@ -8231,14 +8231,12 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
       padding: 1rem;
     }
     
-    .header {
-      text-align: center;
-      margin: 2rem 0 3rem;
-      padding: 2rem;
-      background: white;
-      border-radius: 12px;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    }
+         .header {
+       text-align: center;
+       margin: 2rem 0 3rem;
+       padding: 2rem 1rem;
+       background: transparent;
+     }
     
     .header h1 {
       font-size: 2.5rem;
