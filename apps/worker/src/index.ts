@@ -8283,26 +8283,47 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
       margin-top: 2rem;
     }
     
-    .detection-card {
-      background: white;
-      border-radius: 12px;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-      overflow: hidden;
-      transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-      text-decoration: none;
-      color: inherit;
-    }
-    
-    .detection-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.1);
-      text-decoration: none;
-      color: inherit;
-    }
-    
-    .card-content {
-      padding: 1.5rem;
-    }
+         .detection-card {
+       background: white;
+       border-radius: 12px;
+       box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+       overflow: hidden;
+       transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+       text-decoration: none;
+       color: inherit;
+       display: flex;
+       flex-direction: column;
+     }
+     
+     .detection-card:hover {
+       transform: translateY(-2px);
+       box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.1);
+       text-decoration: none;
+       color: inherit;
+     }
+     
+     .card-image {
+       width: 100%;
+       height: 200px;
+       object-fit: cover;
+       background: #f3f4f6;
+       display: flex;
+       align-items: center;
+       justify-content: center;
+       color: #6b7280;
+       font-size: 2rem;
+     }
+     
+     .card-image img {
+       width: 100%;
+       height: 100%;
+       object-fit: cover;
+     }
+     
+     .card-content {
+       padding: 1.5rem;
+       flex: 1;
+     }
     
     .card-header {
       display: flex;
@@ -8385,15 +8406,17 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
       text-decoration: underline;
     }
     
-    @media (max-width: 768px) {
-      .container { padding: 0.5rem; }
-      .header h1 { font-size: 2rem; }
-      .header p { font-size: 1rem; }
-      .stats { gap: 1rem; }
-      .grid { grid-template-columns: 1fr; gap: 1rem; }
-      .card-header { flex-direction: column; gap: 1rem; }
-      .card-meta { margin-right: 0; }
-    }
+         @media (max-width: 768px) {
+       .container { padding: 0.5rem; }
+       .header h1 { font-size: 2rem; }
+       .header p { font-size: 1rem; }
+       .stats { gap: 1rem; }
+       .grid { grid-template-columns: 1fr; gap: 1rem; }
+       .card-image { height: 160px; }
+       .card-header { flex-direction: column; gap: 1rem; }
+       .card-meta { margin-right: 0; }
+       .card-stats { gap: 0.5rem; flex-wrap: wrap; }
+     }
   </style>
 </head>
 <body>
@@ -8465,6 +8488,14 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
             
             return `
               <a href="https://truthscan.com/d/${page.page_id}" class="detection-card">
+                <div class="card-image">
+                  <img 
+                    src="https://truthscan.com/thumbnails/${page.page_id}" 
+                    alt="${description}"
+                    loading="lazy"
+                    onerror="this.style.display='none'; this.parentElement.innerHTML='🖼️';"
+                  >
+                </div>
                 <div class="card-content">
                   <div class="card-header">
                     <div class="card-meta">
