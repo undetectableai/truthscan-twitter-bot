@@ -8148,6 +8148,9 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
  * Generate HTML template for trending page
  */
  function generateTrendingPageHTML(promotedPages: any[], _request: Request): string {
+  // Dynamic domain detection from current request
+  const currentDomain = new URL(_request.url).origin;
+  
   // Canonical URL - always use main domain for SEO
   const canonicalUrl = `https://truthscan.com/d/trending`;
   
@@ -8487,10 +8490,10 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
               : 'Web Upload';
             
             return `
-              <a href="https://truthscan.com/d/${page.page_id}" class="detection-card">
+              <a href="${currentDomain}/d/${page.page_id}" class="detection-card">
                 <div class="card-image">
                   <img 
-                    src="https://truthscan.com/thumbnails/${page.page_id}" 
+                    src="${currentDomain}/thumbnails/${page.page_id}" 
                     alt="${description}"
                     loading="lazy"
                     onerror="this.style.display='none'; this.parentElement.innerHTML='🖼️';"
