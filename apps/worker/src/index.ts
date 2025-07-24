@@ -1722,6 +1722,7 @@ Disallow: /thumbnails/
 
 # Allow indexing of promoted detection pages (50+ views)
 # Individual page URLs are listed in the sitemap.xml
+# Trending page aggregates all promoted pages for SEO discoverability
 
 Sitemap: ${baseUrl}/detection/sitemap.xml
 Sitemap: https://truthscan.com/sitemap.xml`;
@@ -1825,6 +1826,15 @@ function generateSitemapXmlContent(indexablePages: any[], _request: Request): st
     <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
+  </url>`;
+  
+  // Add trending page
+  sitemapContent += `
+  <url>
+    <loc>${baseUrl}/d/trending</loc>
+    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
+    <changefreq>hourly</changefreq>
+    <priority>0.9</priority>
   </url>`;
   
   // Add each indexable detection page (only pages with 50+ views)
@@ -2877,6 +2887,11 @@ export default {
           // Handle thumbnail requests with pattern /thumbnails/:id
           if (url.pathname.startsWith('/thumbnails/')) {
             return handleThumbnailRequest(request, env);
+          }
+          
+          // Handle trending page request specifically
+          if (url.pathname === '/d/trending') {
+            return handleTrendingPage(request, env);
           }
           
           // Handle detection page requests with pattern /d/:id
@@ -8022,6 +8037,467 @@ async function handleDetectionPage(request: Request, env: Env): Promise<Response
       headers: errorHeaders
     });
   }
+}
+
+/**
+ * Handle trending page request (/d/trending)
+ */
+async function handleTrendingPage(request: Request, env: Env): Promise<Response> {
+  // Enhanced security headers
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'X-XSS-Protection': '1; mode=block',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+  };
+  
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+  
+  if (request.method !== 'GET') {
+    const errorHTML = generateErrorPageHTML(
+      405, 
+      'Method Not Allowed', 
+      'This endpoint only supports GET requests.',
+      'Please use a GET request to access the trending page.'
+    );
+    return new Response(errorHTML, { 
+      status: 405,
+      headers: { ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' }
+    });
+  }
+
+  try {
+    console.log('Trending page request:', {
+      url: request.url,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Get all promoted pages (robots_index = 1) with their metadata
+    const promotedPagesQuery = `
+      SELECT 
+        d.page_id,
+        d.timestamp,
+        d.detection_score,
+        d.twitter_handle,
+        d.tweet_id,
+        d.image_description,
+        d.meta_description,
+        COUNT(pv.id) as view_count
+      FROM detections d
+      LEFT JOIN page_views pv ON d.page_id = pv.page_id
+      WHERE d.robots_index = 1
+      GROUP BY d.page_id, d.timestamp, d.detection_score, d.twitter_handle, d.tweet_id, d.image_description, d.meta_description
+      ORDER BY view_count DESC, d.timestamp DESC
+      LIMIT 100
+    `;
+    
+    const result = await env.DB.prepare(promotedPagesQuery).all();
+    const promotedPages = result.results || [];
+    
+    console.log(`Found ${promotedPages.length} promoted pages for trending page`);
+    
+    // Generate HTML page for trending results
+    const htmlContent = generateTrendingPageHTML(promotedPages, request);
+    
+    // Create response headers with appropriate caching
+    const responseHeaders = new Headers({
+      ...corsHeaders,
+      'Content-Type': 'text/html; charset=utf-8'
+    });
+    setCacheHeaders(responseHeaders, 'DETECTION_PAGES');
+    
+    return new Response(htmlContent, {
+      status: 200,
+      headers: responseHeaders
+    });
+    
+  } catch (error) {
+    console.error('Error handling trending page request:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      url: request.url,
+      userAgent: request.headers.get('User-Agent'),
+      timestamp: new Date().toISOString()
+    });
+    
+    const errorHTML = generateErrorPageHTML(
+      500, 
+      'Server Error', 
+      'Unable to load trending page at this time.',
+      'Please try again later or contact support if this issue persists.'
+    );
+    const errorHeaders = new Headers({
+      ...corsHeaders,
+      'Content-Type': 'text/html; charset=utf-8'
+    });
+    setCacheHeaders(errorHeaders, 'ERROR_PAGES');
+    
+    return new Response(errorHTML, {
+      status: 500,
+      headers: errorHeaders
+    });
+  }
+}
+
+/**
+ * Generate HTML template for trending page
+ */
+ function generateTrendingPageHTML(promotedPages: any[], _request: Request): string {
+  // Canonical URL - always use main domain for SEO
+  const canonicalUrl = `https://truthscan.com/d/trending`;
+  
+  // SEO meta description
+  const metaDescription = `Trending AI detection results on TruthScan. Discover the most viewed AI vs human image analyses with detailed confidence scores and community insights.`;
+  
+  // Format page count
+  const pageCount = promotedPages.length;
+  
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trending AI Detections - Most Popular Results | TruthScan</title>
+  
+  <!-- Enhanced SEO Meta Tags -->
+  <meta name="description" content="${metaDescription}">
+  <meta name="robots" content="index, follow">
+  <meta name="keywords" content="trending AI detection, popular AI analysis, artificial intelligence, image analysis, TruthScan trending">
+  <meta name="author" content="TruthScan">
+  <link rel="canonical" href="${canonicalUrl}">
+  
+  <!-- Enhanced Open Graph Meta Tags for Social Sharing -->
+  <meta property="og:title" content="Trending AI Detections | TruthScan">
+  <meta property="og:description" content="${metaDescription}">
+  <meta property="og:url" content="${canonicalUrl}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="TruthScan">
+  <meta property="og:locale" content="en_US">
+  
+  <!-- Enhanced Twitter Card Meta Tags -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:site" content="@truth_scan">
+  <meta name="twitter:creator" content="@truth_scan">
+  <meta name="twitter:title" content="Trending AI Detections | TruthScan">
+  <meta name="twitter:description" content="${metaDescription}">
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="/logo.png">
+  
+  <!-- Structured Data for SEO -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    "name": "Trending AI Detection Results",
+    "description": "${metaDescription}",
+    "url": "${canonicalUrl}",
+    "publisher": {
+      "@type": "Organization",
+      "name": "TruthScan",
+      "url": "https://truthscan.com"
+    },
+    "numberOfItems": ${pageCount}
+  }
+  </script>
+  
+  <!-- Enhanced CSS Styling -->
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+      line-height: 1.6;
+      color: #1f2937;
+      background: #f9fafb;
+      padding-bottom: 2rem;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1rem;
+    }
+    
+    .header {
+      text-align: center;
+      margin: 2rem 0 3rem;
+      padding: 2rem;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    
+    .header h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 0.5rem;
+    }
+    
+    .header p {
+      font-size: 1.1rem;
+      color: #6b7280;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    
+    .stats {
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      margin-top: 1.5rem;
+      flex-wrap: wrap;
+    }
+    
+    .stat {
+      text-align: center;
+    }
+    
+    .stat-number {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #059669;
+    }
+    
+    .stat-label {
+      font-size: 0.875rem;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }
+    
+    .detection-card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+      transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+      text-decoration: none;
+      color: inherit;
+    }
+    
+    .detection-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.1);
+      text-decoration: none;
+      color: inherit;
+    }
+    
+    .card-content {
+      padding: 1.5rem;
+    }
+    
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 1rem;
+    }
+    
+    .ai-score {
+      font-size: 1.5rem;
+      font-weight: 700;
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      color: white;
+      min-width: 80px;
+      text-align: center;
+    }
+    
+    .score-high { background: #dc2626; }
+    .score-medium { background: #f59e0b; }
+    .score-low { background: #059669; }
+    
+    .card-meta {
+      flex: 1;
+      margin-right: 1rem;
+    }
+    
+    .card-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 0.25rem;
+      line-height: 1.4;
+    }
+    
+    .card-source {
+      font-size: 0.875rem;
+      color: #6b7280;
+      margin-bottom: 0.5rem;
+    }
+    
+    .card-stats {
+      display: flex;
+      gap: 1rem;
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid #e5e7eb;
+      font-size: 0.875rem;
+      color: #6b7280;
+    }
+    
+    .empty-state {
+      text-align: center;
+      padding: 4rem 2rem;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    
+    .empty-state h2 {
+      font-size: 1.5rem;
+      color: #6b7280;
+      margin-bottom: 1rem;
+    }
+    
+    .footer {
+      text-align: center;
+      margin-top: 3rem;
+      padding: 2rem;
+      color: #6b7280;
+      font-size: 0.875rem;
+    }
+    
+    .footer a {
+      color: #059669;
+      text-decoration: none;
+    }
+    
+    .footer a:hover {
+      text-decoration: underline;
+    }
+    
+    @media (max-width: 768px) {
+      .container { padding: 0.5rem; }
+      .header h1 { font-size: 2rem; }
+      .header p { font-size: 1rem; }
+      .stats { gap: 1rem; }
+      .grid { grid-template-columns: 1fr; gap: 1rem; }
+      .card-header { flex-direction: column; gap: 1rem; }
+      .card-meta { margin-right: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1>🔥 Trending AI Detections</h1>
+      <p>Discover the most popular AI vs human image analyses with detailed confidence scores and community insights</p>
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-number">${pageCount}</div>
+          <div class="stat-label">Trending Results</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number">${promotedPages.reduce((total: number, page: any) => total + (page.view_count || 0), 0).toLocaleString()}</div>
+          <div class="stat-label">Total Views</div>
+        </div>
+      </div>
+    </header>
+    
+    <main>
+      ${pageCount === 0 ? `
+        <div class="empty-state">
+          <h2>No trending results yet</h2>
+          <p>Pages become trending after receiving 50+ views and having substantial content descriptions.</p>
+        </div>
+      ` : `
+        <div class="grid">
+          ${promotedPages.map((page: any) => {
+            // Convert detection score to percentage
+            let scorePercentage = 0;
+            if (page.detection_score) {
+              scorePercentage = page.detection_score <= 1 
+                ? Math.round(page.detection_score * 100)
+                : Math.round(page.detection_score);
+            }
+            
+            // Determine score class and classification
+            let scoreClass = 'score-low';
+            let classification = 'Real';
+            
+            if (scorePercentage >= 60) {
+              scoreClass = 'score-high';
+              classification = 'AI Generated';
+            } else if (scorePercentage >= 40) {
+              scoreClass = 'score-medium';
+              classification = 'Uncertain';
+            }
+            
+            // Format timestamp
+            const detectionDate = new Date(page.timestamp * 1000);
+            const timeAgo = formatTimeAgo(detectionDate);
+            
+            // Create description
+            const description = page.image_description && page.image_description !== 'image' 
+              ? page.image_description
+              : (page.meta_description && page.meta_description !== 'image' 
+                  ? page.meta_description 
+                  : 'Image analysis');
+            
+            // Build Twitter link if available
+            const isWebApiPage = page.tweet_id?.startsWith('web_') || page.twitter_handle?.startsWith('web_');
+            const twitterLink = !isWebApiPage && page.twitter_handle && page.tweet_id 
+              ? `https://twitter.com/${page.twitter_handle}/status/${page.tweet_id}`
+              : '';
+            
+            const sourceText = !isWebApiPage && page.twitter_handle 
+              ? `@${page.twitter_handle}` 
+              : 'Web Upload';
+            
+            return `
+              <a href="https://truthscan.com/d/${page.page_id}" class="detection-card">
+                <div class="card-content">
+                  <div class="card-header">
+                    <div class="card-meta">
+                      <div class="card-title">${description}</div>
+                      <div class="card-source">
+                        ${twitterLink ? `<a href="${twitterLink}" target="_blank" onclick="event.stopPropagation();">${sourceText}</a>` : sourceText}
+                      </div>
+                    </div>
+                    <div class="ai-score ${scoreClass}">${scorePercentage}%</div>
+                  </div>
+                  <div class="card-stats">
+                    <span>👁️ ${(page.view_count || 0).toLocaleString()} views</span>
+                    <span>⏰ ${timeAgo}</span>
+                    <span>🤖 ${classification}</span>
+                  </div>
+                </div>
+              </a>
+            `;
+          }).join('')}
+        </div>
+      `}
+    </main>
+    
+    <footer class="footer">
+      <p>
+        Powered by <a href="https://truthscan.com">TruthScan</a> • 
+        <a href="https://twitter.com/truth_scan">@truth_scan</a> • 
+        Helping you distinguish AI from human-created content
+      </p>
+    </footer>
+  </div>
+</body>
+</html>`;
 }
 
 /**
