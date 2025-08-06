@@ -8092,8 +8092,8 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
     `;
     
     const countResult = await env.DB.prepare(countQuery).first();
-    const totalItems = Number(countResult?.total_count) || 0;
-    const totalPages = Math.ceil(totalItems / itemsPerPage);
+    const totalCount = Number(countResult?.total_count) || 0;
+    const totalPages = Math.ceil(totalCount / itemsPerPage);
     
     // Get promoted pages (robots_index = 1) with pagination and sorted by most recent
     const promotedPagesQuery = `
@@ -8123,7 +8123,7 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
     const htmlContent = generateTrendingPageHTML(promotedPages, request, {
       currentPage,
       totalPages,
-      totalItems,
+      totalItems: totalCount,
       itemsPerPage
     });
     
@@ -8180,7 +8180,6 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
   // Pagination info
   const currentPage = pagination?.currentPage || 1;
   const totalPages = pagination?.totalPages || 1;
-  const totalItems = pagination?.totalItems || promotedPages.length;
   
   // Canonical URL - always use main domain for SEO
   const canonicalUrl = currentPage === 1 ? `https://truthscan.com/d/trending` : `https://truthscan.com/d/trending?page=${currentPage}`;
@@ -8286,30 +8285,7 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
       margin: 0 auto;
     }
     
-    .stats {
-      display: flex;
-      justify-content: center;
-      gap: 2rem;
-      margin-top: 1.5rem;
-      flex-wrap: wrap;
-    }
-    
-    .stat {
-      text-align: center;
-    }
-    
-    .stat-number {
-      font-size: 2rem;
-      font-weight: 700;
-      color: #059669;
-    }
-    
-    .stat-label {
-      font-size: 0.875rem;
-      color: #6b7280;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
+
     
     .grid {
       display: grid;
@@ -8498,7 +8474,6 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
        .container { padding: 0.5rem; }
        .header h1 { font-size: 2rem; }
        .header p { font-size: 1rem; }
-       .stats { gap: 1rem; }
        .grid { grid-template-columns: 1fr; gap: 1rem; }
        .card-image { height: 160px; }
        .card-header { flex-direction: column; gap: 1rem; }
@@ -8512,20 +8487,6 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
     <header class="header">
       <h1>🔥 Recent AI Detections</h1>
       <p>Discover the most recent AI vs human image analyses with detailed confidence scores and community insights</p>
-      <div class="stats">
-        <div class="stat">
-          <div class="stat-number">${totalItems.toLocaleString()}</div>
-          <div class="stat-label">Total Results</div>
-        </div>
-        <div class="stat">
-          <div class="stat-number">${pageCount}</div>
-          <div class="stat-label">This Page</div>
-        </div>
-        <div class="stat">
-          <div class="stat-number">${currentPage} / ${totalPages}</div>
-          <div class="stat-label">Page</div>
-        </div>
-      </div>
     </header>
     
     <main>
