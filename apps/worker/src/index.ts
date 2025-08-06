@@ -1054,13 +1054,13 @@ async function isAlreadyProcessed(tweetId: string, env: Env): Promise<boolean> {
 
 /**
  * Promote popular pages to public indexing
- * Finds pages with 50+ views that aren't already indexed and makes them publicly searchable
+ * Finds pages with 75+ views that aren't already indexed and makes them publicly searchable
  */
 async function promotePopularPages(env: Env): Promise<{ success: boolean; promotedCount: number; details: string[] }> {
   try {
     console.log('🔍 Checking for pages eligible for public indexing promotion...');
     
-    // Find pages with 50+ views that aren't already indexed AND have substantial content descriptions
+    // Find pages with 75+ views that aren't already indexed AND have substantial content descriptions
     const query = `
       SELECT 
         d.page_id,
@@ -1077,7 +1077,7 @@ async function promotePopularPages(env: Env): Promise<{ success: boolean; promot
         AND LENGTH(d.detailed_description) >= 200
         AND LENGTH(d.confidence_analysis) >= 200
       GROUP BY d.page_id, d.id, d.robots_index, d.detailed_description, d.confidence_analysis
-      HAVING COUNT(pv.id) >= 50
+      HAVING COUNT(pv.id) >= 75
       ORDER BY view_count DESC
     `;
     
@@ -1097,7 +1097,7 @@ async function promotePopularPages(env: Env): Promise<{ success: boolean; promot
     }
     
     if (eligiblePages.length === 0) {
-      console.log('❌ No pages found that meet promotion criteria (50+ views, not already indexed, 200+ character descriptions)');
+      console.log('❌ No pages found that meet promotion criteria (75+ views, not already indexed, 200+ character descriptions)');
       return { 
         success: true, 
         promotedCount: 0, 
@@ -1720,7 +1720,7 @@ Disallow: /webhook/
 Disallow: /images/
 Disallow: /thumbnails/
 
-# Allow indexing of promoted detection pages (50+ views)
+    # Allow indexing of promoted detection pages (75+ views)
 # Individual page URLs are listed in the sitemap.xml
 # Trending page aggregates all promoted pages for SEO discoverability
 
@@ -1728,7 +1728,7 @@ Sitemap: ${baseUrl}/detection/sitemap.xml
 Sitemap: https://truthscan.com/sitemap.xml`;
   
   robotsContent += `\n\n# Generated automatically at ${new Date().toISOString()}`;
-  robotsContent += `\n# Pages with 20+ views are automatically promoted for indexing`;
+      robotsContent += `\n# Pages with 75+ views are automatically promoted for indexing`;
   robotsContent += `\n# Currently ${indexablePages.length} page(s) are indexed`;
   
   return robotsContent;
@@ -1837,7 +1837,7 @@ function generateSitemapXmlContent(indexablePages: any[], _request: Request): st
     <priority>0.9</priority>
   </url>`;
   
-  // Add each indexable detection page (only pages with 50+ views)
+        // Add each indexable detection page (only pages with 75+ views)
   for (const page of indexablePages) {
     const pageData = page as { page_id: string; timestamp: number };
     const pageId = pageData.page_id;
@@ -2498,7 +2498,7 @@ export default {
               LEFT JOIN page_views pv ON d.page_id = pv.page_id
               WHERE d.robots_index = 0 OR d.robots_index IS NULL
               GROUP BY d.page_id, d.id, d.robots_index
-              HAVING COUNT(pv.id) >= 50
+              HAVING COUNT(pv.id) >= 75
               ORDER BY view_count DESC
             `;
             
@@ -2612,7 +2612,7 @@ export default {
               LEFT JOIN page_views pv ON d.page_id = pv.page_id
               WHERE d.robots_index = 0 OR d.robots_index IS NULL
               GROUP BY d.page_id, d.id, d.robots_index
-              HAVING COUNT(pv.id) >= 50
+              HAVING COUNT(pv.id) >= 75
               ORDER BY view_count DESC
             `;
             
@@ -2803,7 +2803,7 @@ export default {
               LEFT JOIN page_views pv ON d.page_id = pv.page_id
               WHERE d.robots_index = 0 OR d.robots_index IS NULL
               GROUP BY d.page_id, d.id, d.robots_index
-              HAVING COUNT(pv.id) >= 50
+              HAVING COUNT(pv.id) >= 75
               ORDER BY view_count DESC
               LIMIT 10
             `;
@@ -8493,7 +8493,7 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
       ${pageCount === 0 ? `
         <div class="empty-state">
           <h2>No trending results yet</h2>
-          <p>Pages become trending after receiving 50+ views and having substantial content descriptions.</p>
+          <p>Pages become trending after receiving 75+ views and having substantial content descriptions.</p>
         </div>
       ` : `
         <div class="grid">
