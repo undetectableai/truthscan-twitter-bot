@@ -8072,12 +8072,30 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
   }
 
   try {
+    const url = new URL(request.url);
+    const pageParam = url.searchParams.get('page');
+    const currentPage = Math.max(1, parseInt(pageParam || '1', 10));
+    const itemsPerPage = 21;
+    const offset = (currentPage - 1) * itemsPerPage;
+    
     console.log('Trending page request:', {
       url: request.url,
+      page: currentPage,
       timestamp: new Date().toISOString()
     });
     
-    // Get all promoted pages (robots_index = 1) with their metadata
+    // Get total count of promoted pages for pagination
+    const countQuery = `
+      SELECT COUNT(DISTINCT d.page_id) as total_count
+      FROM detections d
+      WHERE d.robots_index = 1
+    `;
+    
+    const countResult = await env.DB.prepare(countQuery).first();
+    const totalItems = Number(countResult?.total_count) || 0;
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+    
+    // Get promoted pages (robots_index = 1) with pagination and sorted by most recent
     const promotedPagesQuery = `
       SELECT 
         d.page_id,
@@ -8092,17 +8110,22 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
       LEFT JOIN page_views pv ON d.page_id = pv.page_id
       WHERE d.robots_index = 1
       GROUP BY d.page_id, d.timestamp, d.detection_score, d.twitter_handle, d.tweet_id, d.image_description, d.meta_description
-      ORDER BY view_count DESC, d.timestamp DESC
-      LIMIT 100
+      ORDER BY d.timestamp DESC
+      LIMIT ? OFFSET ?
     `;
     
-    const result = await env.DB.prepare(promotedPagesQuery).all();
+    const result = await env.DB.prepare(promotedPagesQuery).bind(itemsPerPage, offset).all();
     const promotedPages = result.results || [];
     
-    console.log(`Found ${promotedPages.length} promoted pages for trending page`);
+    console.log(`Found ${promotedPages.length} promoted pages for trending page (page ${currentPage}/${totalPages})`);
     
-    // Generate HTML page for trending results
-    const htmlContent = generateTrendingPageHTML(promotedPages, request);
+    // Generate HTML page for trending results with pagination
+    const htmlContent = generateTrendingPageHTML(promotedPages, request, {
+      currentPage,
+      totalPages,
+      totalItems,
+      itemsPerPage
+    });
     
     // Create response headers with appropriate caching
     const responseHeaders = new Headers({
@@ -8147,15 +8170,25 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
 /**
  * Generate HTML template for trending page
  */
- function generateTrendingPageHTML(promotedPages: any[], _request: Request): string {
+ function generateTrendingPageHTML(promotedPages: any[], _request: Request, pagination?: {currentPage: number, totalPages: number, totalItems: number, itemsPerPage: number}): string {
   // Dynamic domain detection from current request
   const currentDomain = new URL(_request.url).origin;
   
+  // Production domain for detection page links
+  const productionDomain = 'https://truthscan.com';
+  
+  // Pagination info
+  const currentPage = pagination?.currentPage || 1;
+  const totalPages = pagination?.totalPages || 1;
+  const totalItems = pagination?.totalItems || promotedPages.length;
+  
   // Canonical URL - always use main domain for SEO
-  const canonicalUrl = `https://truthscan.com/d/trending`;
+  const canonicalUrl = currentPage === 1 ? `https://truthscan.com/d/trending` : `https://truthscan.com/d/trending?page=${currentPage}`;
   
   // SEO meta description
-  const metaDescription = `Trending AI detection results on TruthScan. Discover the most viewed AI vs human image analyses with detailed confidence scores and community insights.`;
+  const metaDescription = currentPage === 1 
+    ? `Trending AI detection results on TruthScan. Discover the most recent AI vs human image analyses with detailed confidence scores and community insights.`
+    : `Trending AI detection results on TruthScan - Page ${currentPage}. Browse recent AI vs human image analyses with detailed confidence scores.`;
   
   // Format page count
   const pageCount = promotedPages.length;
@@ -8165,7 +8198,7 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Trending AI Detections - Most Popular Results | TruthScan</title>
+  <title>${currentPage === 1 ? 'Trending AI Detections - Most Recent Results | TruthScan' : `Trending AI Detections - Page ${currentPage} | TruthScan`}</title>
   
   <!-- Enhanced SEO Meta Tags -->
   <meta name="description" content="${metaDescription}">
@@ -8221,7 +8254,7 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
       line-height: 1.6;
       color: #1f2937;
-      background: #f9fafb;
+      background: #ffffff;
       padding-bottom: 2rem;
     }
     
@@ -8229,13 +8262,14 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
       max-width: 1200px;
       margin: 0 auto;
       padding: 1rem;
+      background: #ffffff;
     }
     
          .header {
        text-align: center;
        margin: 2rem 0 3rem;
        padding: 2rem 1rem;
-       background: transparent;
+       background: #ffffff;
      }
     
     .header h1 {
@@ -8286,10 +8320,11 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
     
          .detection-card {
        background: white;
-       border-radius: 12px;
-       box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+       border-radius: 0;
+       box-shadow: none;
+       border: none;
        overflow: hidden;
-       transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+       transition: none;
        text-decoration: none;
        color: inherit;
        display: flex;
@@ -8297,8 +8332,8 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
      }
      
      .detection-card:hover {
-       transform: translateY(-2px);
-       box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.1);
+       transform: none;
+       box-shadow: none;
        text-decoration: none;
        color: inherit;
      }
@@ -8380,8 +8415,9 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
       text-align: center;
       padding: 4rem 2rem;
       background: white;
-      border-radius: 12px;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      border-radius: 0;
+      box-shadow: none;
+      border: none;
     }
     
     .empty-state h2 {
@@ -8407,6 +8443,57 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
       text-decoration: underline;
     }
     
+    .pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 3rem 0 2rem;
+      flex-wrap: wrap;
+    }
+    
+    .pagination a, .pagination span {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 40px;
+      height: 40px;
+      padding: 0.5rem;
+      text-decoration: none;
+      color: #374151;
+      font-weight: 500;
+      border: 1px solid #d1d5db;
+      background: #ffffff;
+      transition: all 0.2s ease;
+    }
+    
+    .pagination a:hover {
+      background: #f3f4f6;
+      border-color: #9ca3af;
+    }
+    
+    .pagination .current {
+      background: #059669;
+      color: white;
+      border-color: #059669;
+    }
+    
+    .pagination .disabled {
+      color: #9ca3af;
+      cursor: not-allowed;
+      background: #f9fafb;
+    }
+    
+    .pagination .disabled:hover {
+      background: #f9fafb;
+      border-color: #d1d5db;
+    }
+    
+    .pagination .nav-btn {
+      padding: 0.5rem 1rem;
+      font-size: 0.875rem;
+    }
+    
          @media (max-width: 768px) {
        .container { padding: 0.5rem; }
        .header h1 { font-size: 2rem; }
@@ -8423,16 +8510,20 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
 <body>
   <div class="container">
     <header class="header">
-      <h1>🔥 Trending AI Detections</h1>
-      <p>Discover the most popular AI vs human image analyses with detailed confidence scores and community insights</p>
+      <h1>🔥 Recent AI Detections</h1>
+      <p>Discover the most recent AI vs human image analyses with detailed confidence scores and community insights</p>
       <div class="stats">
         <div class="stat">
-          <div class="stat-number">${pageCount}</div>
-          <div class="stat-label">Trending Results</div>
+          <div class="stat-number">${totalItems.toLocaleString()}</div>
+          <div class="stat-label">Total Results</div>
         </div>
         <div class="stat">
-          <div class="stat-number">${promotedPages.reduce((total: number, page: any) => total + (page.view_count || 0), 0).toLocaleString()}</div>
-          <div class="stat-label">Total Views</div>
+          <div class="stat-number">${pageCount}</div>
+          <div class="stat-label">This Page</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number">${currentPage} / ${totalPages}</div>
+          <div class="stat-label">Page</div>
         </div>
       </div>
     </header>
@@ -8488,7 +8579,7 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
               : 'Web Upload';
             
             return `
-              <a href="${currentDomain}/d/${page.page_id}" class="detection-card">
+              <a href="${productionDomain}/d/${page.page_id}" class="detection-card">
                 <div class="card-image">
                   <img 
                     src="${currentDomain}/thumbnails/${page.page_id}" 
@@ -8517,6 +8608,45 @@ async function handleTrendingPage(request: Request, env: Env): Promise<Response>
             `;
           }).join('')}
         </div>
+        
+        ${totalPages > 1 ? `
+          <nav class="pagination" role="navigation" aria-label="Pagination Navigation">
+            ${currentPage > 1 ? `<a href="${productionDomain}/d/trending${currentPage > 2 ? '?page=' + (currentPage - 1) : ''}" class="nav-btn" aria-label="Previous page">← Previous</a>` : '<span class="nav-btn disabled">← Previous</span>'}
+            
+            ${(() => {
+              const pages = [];
+              const maxVisible = 7;
+              let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+              const end = Math.min(totalPages, start + maxVisible - 1);
+              
+              if (end - start + 1 < maxVisible) {
+                start = Math.max(1, end - maxVisible + 1);
+              }
+              
+              if (start > 1) {
+                pages.push(`<a href="${productionDomain}/d/trending">1</a>`);
+                if (start > 2) pages.push('<span class="ellipsis">...</span>');
+              }
+              
+              for (let i = start; i <= end; i++) {
+                if (i === currentPage) {
+                  pages.push(`<span class="current">${i}</span>`);
+                } else {
+                  pages.push(`<a href="${productionDomain}/d/trending${i > 1 ? '?page=' + i : ''}">${i}</a>`);
+                }
+              }
+              
+              if (end < totalPages) {
+                if (end < totalPages - 1) pages.push('<span class="ellipsis">...</span>');
+                pages.push(`<a href="${productionDomain}/d/trending?page=${totalPages}">${totalPages}</a>`);
+              }
+              
+              return pages.join('');
+            })()}
+            
+            ${currentPage < totalPages ? `<a href="${productionDomain}/d/trending?page=${currentPage + 1}" class="nav-btn" aria-label="Next page">Next →</a>` : '<span class="nav-btn disabled">Next →</span>'}
+          </nav>
+        ` : ''}
       `}
     </main>
     
