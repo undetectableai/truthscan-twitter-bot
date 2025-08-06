@@ -8844,11 +8844,10 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
         "encodingFormat": "image/jpeg",
         "width": 1200,
         "height": 630,
-        "analysisResult": {
-          "@type": "QuantitativeValue",
-          "value": ${scorePercentage},
-          "unitText": "percent",
-          "description": "AI generation probability"
+        "about": {
+          "@type": "Thing",
+          "name": "AI Detection Analysis",
+          "description": "Analysis showing ${scorePercentage}% AI generation probability"
         }
       },
       "${fallbackImageUrl}"
@@ -8920,48 +8919,20 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
         "reviewCount": "9321"
       }
     },
-    "dataset": {
-      "@type": "Dataset",
-      "name": "AI Detection Analysis Results",
-      "description": "Structured data containing AI probability analysis of image content",
-      "creator": {
-        "@type": "Organization",
-        "name": "TruthScan"
-      },
-      "distribution": {
-        "@type": "DataDownload",
-        "contentUrl": "${canonicalUrl}",
-        "encodingFormat": "application/ld+json"
-      },
-      "variableMeasured": [
-        {
-          "@type": "PropertyValue",
-          "name": "AI Probability",
-          "value": "${scorePercentage}%",
-          "unitText": "percent"
-        },
-        {
-          "@type": "PropertyValue", 
-          "name": "Classification",
-          "value": "${classification}"
-        },
-        {
-          "@type": "PropertyValue",
-          "name": "Confidence Level", 
-          "value": "${confidenceLevel}"
-        }
-      ]
-    },
     "review": {
-      "@type": "Rating",
-      "ratingValue": ${scorePercentage},
-      "bestRating": 100,
-      "worstRating": 0,
-      "ratingExplanation": "AI Generation Probability Score",
+      "@type": "Review",
+      "reviewRating": {
+        "@type": "Rating",
+        "ratingValue": ${scorePercentage},
+        "bestRating": 100,
+        "worstRating": 0,
+        "ratingExplanation": "AI Generation Probability Score"
+      },
       "author": {
         "@type": "Organization",
         "name": "TruthScan AI Engine"
-      }
+      },
+      "reviewBody": "AI detection analysis completed with ${scorePercentage}% probability score"
     },
     "keywords": [
       "AI detection",
@@ -8983,7 +8954,9 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
     "commentCount": 0,
     "interactionStatistic": {
       "@type": "InteractionCounter",
-      "interactionType": "https://schema.org/ViewAction",
+      "interactionType": {
+        "@type": "ViewAction"
+      },
       "userInteractionCount": 1
     },
     "potentialAction": [
@@ -9022,7 +8995,10 @@ function generateDetectionPageHTML(data: any, pageId: string, request: Request):
       }
     },
     "temporalCoverage": "${new Date(data.timestamp * 1000).toISOString()}",
-    "spatialCoverage": "Global",
+    "spatialCoverage": {
+      "@type": "Place",
+      "name": "Global"
+    },
     "audience": {
       "@type": "Audience",
       "name": "Technology professionals, researchers, and social media users",
